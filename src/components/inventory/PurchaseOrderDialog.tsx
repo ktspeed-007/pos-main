@@ -293,6 +293,8 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
         });
         setPoNumber(res.data.id); // อัปเดตเลขที่ใบขอซื้อใน Dialog ให้ตรงกับ backend
         toast.success('บันทึกใบขอซื้อเรียบร้อยแล้ว');
+        // ส่ง event เพื่อรีเฟรชข้อมูลในหน้าอื่นๆ
+        window.dispatchEvent(new CustomEvent('refreshProducts'));
         onClose();
       } else {
         toast.error('เกิดข้อผิดพลาดในการบันทึกใบขอซื้อ');
@@ -319,6 +321,8 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
           notes: notes ?? '',
         });
         toast.success('อนุมัติใบขอซื้อเรียบร้อยแล้ว');
+        // ส่ง event เพื่อรีเฟรชข้อมูลในหน้าอื่นๆ
+        window.dispatchEvent(new CustomEvent('refreshProducts'));
         onClose();
       } else {
         toast.error('เกิดข้อผิดพลาดในการอนุมัติใบขอซื้อ');
@@ -345,6 +349,8 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
           notes: notes ?? '',
         });
         toast.success('ยกเลิกใบขอซื้อเรียบร้อยแล้ว');
+        // ส่ง event เพื่อรีเฟรชข้อมูลในหน้าอื่นๆ
+        window.dispatchEvent(new CustomEvent('refreshProducts'));
         onClose();
       } else {
         toast.error('เกิดข้อผิดพลาดในการยกเลิกใบขอซื้อ');

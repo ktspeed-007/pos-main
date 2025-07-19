@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Stock Update</title>
+</head>
+<body>
+    <h1>Test Stock Update</h1>
+    <button onclick="testStockUpdate()">Test Stock Update</button>
+    <div id="result"></div>
+
+    <script>
+        async function testStockUpdate() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Testing...';
+            
+            try {
+                // Test data
+                const testData = {
+                    updates: [
+                        { id: '1', stock: 10 },
+                        { id: '2', stock: 20 }
+                    ]
+                };
+                
+                console.log('Sending test data:', testData);
+                
+                const response = await fetch('http://localhost:3001/api/products/stock/bulk', {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(testData)
+                });
+                
+                const result = await response.json();
+                console.log('Response:', result);
+                
+                resultDiv.innerHTML = `
+                    <h3>Test Result:</h3>
+                    <pre>${JSON.stringify(result, null, 2)}</pre>
+                `;
+                
+            } catch (error) {
+                console.error('Error:', error);
+                resultDiv.innerHTML = `<h3>Error:</h3><pre>${error.message}</pre>`;
+            }
+        }
+    </script>
+</body>
+</html> 

@@ -179,6 +179,14 @@ export const productsAPI = {
       body: JSON.stringify({ stock }),
     });
   },
+
+  // อัปเดตสต็อกหลายรายการพร้อมกัน (สำหรับการรับของ)
+  updateMultipleStock: async (stockUpdates: Array<{ id: string; stock: number }>): Promise<ApiResponse<Product[]>> => {
+    return apiCall<Product[]>('/products/stock/bulk', {
+      method: 'PATCH',
+      body: JSON.stringify({ updates: stockUpdates }),
+    });
+  },
 };
 
 // Sales API

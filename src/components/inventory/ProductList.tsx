@@ -27,6 +27,19 @@ import { mapProductFields } from '../../contexts/StoreContext';
 
 const ProductList = () => {
   const { products, deleteProduct, toggleProductActive, updateProduct, setProducts, fetchProducts } = useStore();
+  
+  // เพิ่ม event listener สำหรับรีเฟรชข้อมูลสินค้า
+  useEffect(() => {
+    const handleRefreshProducts = () => {
+      fetchProducts();
+    };
+
+    window.addEventListener('refreshProducts', handleRefreshProducts);
+    
+    return () => {
+      window.removeEventListener('refreshProducts', handleRefreshProducts);
+    };
+  }, [fetchProducts]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredProducts, setFilteredProducts] = useState(products);
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -158,6 +171,8 @@ const ProductList = () => {
       const response = await productsAPI.updateStock(stockProduct.id, newStock);
       console.log('updateStock response', response);
       await refreshProducts();
+      // ส่ง event เพื่อรีเฟรชข้อมูลในหน้าอื่นๆ
+      window.dispatchEvent(new CustomEvent('refreshProducts'));
       toast.success(`เพิ่มสต็อก ${addStockAmount} ชิ้นให้ ${stockProduct.name}`);
     } catch (e) {
       toast.error('เกิดข้อผิดพลาดในการอัปเดตสต็อก');
@@ -229,6 +244,8 @@ const ProductList = () => {
     toast.success(`เพิ่ม Lot ${newLotCode} สำหรับ ${lotProduct.name}`);
       setShowAddLotDialog(false); // ปิด popup
       await refreshProducts(); // โหลดข้อมูลสินค้าใหม่
+      // ส่ง event เพื่อรีเฟรชข้อมูลในหน้าอื่นๆ
+      window.dispatchEvent(new CustomEvent('refreshProducts'));
       // reset ฟอร์ม
     setLotProduct(null);
     setNewLotCode('');

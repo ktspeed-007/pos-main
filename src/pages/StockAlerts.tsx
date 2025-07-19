@@ -12,7 +12,7 @@ import PurchaseOrderDialog from '../components/inventory/PurchaseOrderDialog';
 import { purchaseOrderAPI } from '../services/api/purchaseOrderAPI';
 
 const StockAlerts = () => {
-  const { products } = useStore();
+  const { products, fetchProducts } = useStore();
   const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
   const [outOfStockProducts, setOutOfStockProducts] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -38,6 +38,29 @@ const StockAlerts = () => {
     };
     fetchPOs();
   }, []);
+
+  // ฟังก์ชันรีเฟรชข้อมูล PO
+  const refreshPurchaseOrders = async () => {
+    const res = await purchaseOrderAPI.getAll();
+    if (res.success && Array.isArray(res.data)) {
+      setPurchaseOrders(res.data);
+    } else {
+      setPurchaseOrders([]);
+    }
+  };
+
+  // เพิ่ม event listener สำหรับรีเฟรชข้อมูลสินค้า
+  useEffect(() => {
+    const handleRefreshProducts = () => {
+      fetchProducts();
+    };
+
+    window.addEventListener('refreshProducts', handleRefreshProducts);
+    
+    return () => {
+      window.removeEventListener('refreshProducts', handleRefreshProducts);
+    };
+  }, [fetchProducts]);
 
   useEffect(() => {
     // Filter products with low stock
@@ -222,15 +245,15 @@ const StockAlerts = () => {
     // ใช้ purchaseOrders จาก backend
     const relatedPOs = purchaseOrders.filter((po: any) => Array.isArray(po.items) && po.items.some((item: any) => (item.productId === productId || item.id === productId) && item.lotCode === lotCode));
     if (relatedPOs.length === 0) return 'draft';
-    // ถ้ามี PO ที่ received ให้แสดง received ก่อน
-    const receivedPO = relatedPOs.find((po: any) => po.status === 'received');
-    if (receivedPO) return 'received';
+    // ถ้ามี PO ที่ received หรือ partial_received ให้แสดงสถานะนั้นก่อน
+    const receivedPO = relatedPOs.find((po: any) => po.status === 'received' || po.status === 'partial_received');
+    if (receivedPO) return receivedPO.status;
     // เอา PO ล่าสุด (createdAt มากสุด)
     const latestPO = relatedPOs.sort((a: any, b: any) => new Date(b.created_at || b.createdAt).getTime() - new Date(a.created_at || a.createdAt).getTime())[0];
     return latestPO.status;
   };
 
-  // ฟังก์ชันแสดงสถานะ PO (เพิ่ม received)
+  // ฟังก์ชันแสดงสถานะ PO (เพิ่ม received และ partial_received)
   const getPOStatusBadge = (status: string) => {
     const statusConfig = {
       draft: { text: 'ยังไม่ขอซื้อ', variant: 'secondary' as const },
@@ -238,6 +261,7 @@ const StockAlerts = () => {
       approved: { text: 'อนุมัติแล้ว', variant: 'default' as const },
       cancelled: { text: 'ยกเลิก', variant: 'destructive' as const },
       received: { text: 'รับของเข้าแล้ว', variant: 'default' as const },
+      partial_received: { text: 'รับบางส่วน', variant: 'secondary' as const },
     };
     const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.draft;
     return (
@@ -251,6 +275,7 @@ const StockAlerts = () => {
   const canCreatePurchaseOrder = (productId: string, lotCode: string) => {
     const status = getLatestPOStatus(productId, lotCode);
     // เปิดการทำงานเฉพาะสถานะ 'draft' (ยังไม่ขอซื้อ) และ 'cancelled' (ยกเลิก)
+    // ปิดการทำงานเมื่อ 'received' (รับของแล้ว) หรือ 'partial_received' (รับบางส่วน)
     return status === 'draft' || status === 'cancelled';
   };
 
@@ -502,7 +527,11 @@ const StockAlerts = () => {
       {/* Purchase Order Dialog */}
       <PurchaseOrderDialog
         open={showPurchaseOrderDialog}
-        onClose={() => setShowPurchaseOrderDialog(false)}
+        onClose={() => {
+          setShowPurchaseOrderDialog(false);
+          // รีเฟรชข้อมูล PO หลังปิด dialog
+          refreshPurchaseOrders();
+        }}
         products={selectedProducts}
       />
     </div>

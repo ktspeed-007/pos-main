@@ -307,6 +307,8 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
       });
     }
     
+    // ส่ง event เพื่อรีเฟรชข้อมูลในหน้าอื่นๆ
+    window.dispatchEvent(new CustomEvent('refreshProducts'));
     onClose();
   };
   

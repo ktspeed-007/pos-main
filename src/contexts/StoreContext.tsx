@@ -132,6 +132,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // TODO: สามารถเพิ่ม fetchSales, fetchLogs ถ้ามี API
   }, []);
 
+  // เพิ่ม event listener สำหรับรีเฟรชข้อมูลสินค้า
+  useEffect(() => {
+    const handleRefreshProducts = () => {
+      fetchProducts();
+    };
+
+    window.addEventListener('refreshProducts', handleRefreshProducts);
+    
+    return () => {
+      window.removeEventListener('refreshProducts', handleRefreshProducts);
+    };
+  }, []);
+
   // ฟังก์ชันโหลดข้อมูลสินค้าใหม่จาก API
   const fetchProducts = async () => {
     const response = await productsAPI.getAll();

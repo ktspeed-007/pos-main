@@ -164,6 +164,53 @@ app.patch('/api/products/:id/stock', async (req, res) => {
   }
 });
 
+// PATCH /api/products/stock/bulk - อัปเดต stock หลายรายการพร้อมกัน
+app.patch('/api/products/stock/bulk', async (req, res) => {
+  const { updates } = req.body;
+  
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return res.status(400).json({ success: false, error: 'Invalid updates array' });
+  }
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      const updatedProducts = [];
+      
+      for (const update of updates) {
+        const { id, stock } = update;
+        if (!id || stock === undefined) {
+          throw new Error('Invalid update data: missing id or stock');
+        }
+        
+        const result = await client.query(
+          'UPDATE products SET stock = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+          [stock, id]
+        );
+        
+        if (result.rows.length === 0) {
+          throw new Error(`Product not found: ${id}`);
+        }
+        
+        updatedProducts.push(result.rows[0]);
+      }
+      
+      await client.query('COMMIT');
+      res.json({ success: true, data: updatedProducts });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Users endpoints
 app.get('/api/users', async (req, res) => {
   try {

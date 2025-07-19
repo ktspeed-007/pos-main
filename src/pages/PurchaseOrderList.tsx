@@ -5,11 +5,13 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Dialog as UIDialog, DialogContent as UIDialogContent, DialogHeader as UIDialogHeader, DialogTitle as UIDialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Printer, Check, X, Edit } from 'lucide-react';
 import { purchaseOrderAPI } from '@/services/api/purchaseOrderAPI';
 import { sellerAPI } from '@/services/api/sellerAPI';
+import { productsAPI } from '@/services/api';
 import { warehouseAPI } from '@/services/api/warehouseAPI';
 import { storageLocationAPI } from '@/services/api/storageLocationAPI';
 import { shopInfoAPI } from '@/services/api/shopInfoAPI';
@@ -21,6 +23,8 @@ const statusColor = {
   pending: 'yellow',
   approved: 'green',
   cancelled: 'red',
+  received: 'blue',
+  partial_received: 'orange',
 };
 
 const statusLabel = {
@@ -28,6 +32,8 @@ const statusLabel = {
   pending: 'รอดำเนินการ',
   approved: 'อนุมัติแล้ว',
   cancelled: 'ยกเลิก',
+  received: 'รับของแล้ว',
+  partial_received: 'รับบางส่วน',
 };
 
 const PurchaseOrderList = () => {
@@ -52,6 +58,9 @@ const PurchaseOrderList = () => {
   const [pendingApproveOrder, setPendingApproveOrder] = useState<any>(null);
   const [pendingCancelOrder, setPendingCancelOrder] = useState<any>(null);
   const [shopInfo, setShopInfo] = useState<any>(null);
+  const [showReceiveDialog, setShowReceiveDialog] = useState(false);
+  const [receiveOrder, setReceiveOrder] = useState<any>(null);
+  const [receiveItems, setReceiveItems] = useState<any[]>([]);
 
   // ฟังก์ชันเปิด dialog ใส่รหัสผ่าน (reset state ทุกครั้ง)
   const openPasswordDialog = () => {
@@ -382,6 +391,10 @@ const PurchaseOrderList = () => {
         return <span className="px-2 py-1 rounded bg-yellow-400 text-white text-xs">รอดำเนินการ</span>;
       case 'draft':
         return <span className="px-2 py-1 rounded bg-gray-400 text-white text-xs">ร่าง</span>;
+      case 'received':
+        return <span className="px-2 py-1 rounded bg-blue-500 text-white text-xs">รับของแล้ว</span>;
+      case 'partial_received':
+        return <span className="px-2 py-1 rounded bg-orange-500 text-white text-xs">รับบางส่วน</span>;
       default:
         return <span className="px-2 py-1 rounded bg-gray-200 text-gray-700 text-xs">{status}</span>;
     }
@@ -398,6 +411,147 @@ const PurchaseOrderList = () => {
       const isOutOfStock = item.originalQuantity === 0;
       return hasLowStock || isOutOfStock;
     });
+  };
+
+  // ฟังก์ชันเปิด Dialog รับของ
+  const handleOpenReceiveDialog = (order: any) => {
+    setReceiveOrder(order);
+    // สร้าง receiveItems จาก order.items โดยเพิ่ม receivedQuantity
+    const items = order.items.map((item: any) => ({
+      ...item,
+      receivedQuantity: item.currentQuantity, // default = จำนวนที่สั่ง
+      receivedNotes: '',
+    }));
+    setReceiveItems(items);
+    setShowReceiveDialog(true);
+  };
+
+  // ฟังก์ชันอัปเดตจำนวนที่รับจริง
+  const updateReceivedQuantity = (itemId: string, quantity: number) => {
+    setReceiveItems(prev => prev.map(item => 
+      item.id === itemId ? { ...item, receivedQuantity: quantity } : item
+    ));
+  };
+
+  // ฟังก์ชันอัปเดตหมายเหตุการรับของ
+  const updateReceivedNotes = (itemId: string, notes: string) => {
+    setReceiveItems(prev => prev.map(item => 
+      item.id === itemId ? { ...item, receivedNotes: notes } : item
+    ));
+  };
+
+  // ฟังก์ชันบันทึกการรับของ
+  const handleSaveReceive = async () => {
+    try {
+      // อัปเดต order items ด้วยข้อมูลการรับของ
+      const updatedItems = receiveItems.map(item => ({
+        ...item,
+        receivedDate: new Date().toISOString(),
+        receivedBy: user?.username || 'unknown',
+        isFullyReceived: item.receivedQuantity >= item.currentQuantity,
+      }));
+
+      // ตรวจสอบสถานะการรับของ
+      const allFullyReceived = updatedItems.every(item => item.isFullyReceived);
+      const anyReceived = updatedItems.some(item => item.receivedQuantity > 0);
+      
+      let newStatus = receiveOrder.status;
+      if (allFullyReceived) {
+        newStatus = 'received';
+      } else if (anyReceived) {
+        newStatus = 'partial_received';
+      }
+
+      // อัปเดต PO ใน backend
+      const updatedOrder = {
+        ...receiveOrder,
+        items: updatedItems,
+        status: newStatus,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await purchaseOrderAPI.update(receiveOrder.id, updatedOrder);
+
+      // อัปเดตสต็อกสินค้า - ดึงข้อมูลสินค้าปัจจุบันก่อน
+               // ใช้ productCode + lotCode เพื่อระบุสินค้า
+         const productIdentifiers = receiveItems
+           .filter(item => item.receivedQuantity > 0)
+           .map(item => ({
+             productCode: item.productCode,
+             lotCode: item.lotCode,
+             receivedQuantity: item.receivedQuantity,
+             name: item.name
+           }));
+
+         console.log('DEBUG: productIdentifiers:', productIdentifiers);
+
+      if (productIdentifiers.length > 0) {
+        // ดึงข้อมูลสินค้าทั้งหมดเพื่อหา matching
+        console.log('DEBUG: Fetching all products to find matching items');
+        const allProductsResult = await productsAPI.getAll();
+        const allProducts = allProductsResult.success ? allProductsResult.data : [];
+        console.log('DEBUG: All products:', allProducts);
+
+                 // สร้าง stockUpdates โดยหา matching ด้วย productCode + lotCode
+         const stockUpdates = productIdentifiers
+           .map(item => {
+             // หาสินค้าที่ตรงกับ productCode และ lotCode (ใช้ snake_case จากฐานข้อมูล)
+             const matchingProduct = allProducts.find(p => 
+               (p.productCode === item.productCode || (p as any).productcode === item.productCode) && 
+               (p.lotCode === item.lotCode || (p as any).lotcode === item.lotCode)
+             );
+            
+                         if (!matchingProduct) {
+               console.log('DEBUG: No matching product found for:', item.productCode, item.lotCode);
+               console.log('DEBUG: Available products:', allProducts.map(p => ({ id: p.id, productCode: p.productCode, lotCode: p.lotCode, productcode: (p as any).productcode, lotcode: (p as any).lotcode })));
+               return null;
+             }
+            
+            const currentStock = matchingProduct.stock || 0;
+            console.log('DEBUG: Processing item:', item.name, 'productCode:', item.productCode, 'lotCode:', item.lotCode, 'currentStock:', currentStock, 'receivedQuantity:', item.receivedQuantity);
+            
+            return {
+              id: matchingProduct.id,
+              stock: currentStock + item.receivedQuantity
+            };
+          })
+          .filter(update => update !== null); // กรอง null ออก
+
+        console.log('DEBUG: stockUpdates', stockUpdates);
+
+        if (stockUpdates.length > 0) {
+          console.log('DEBUG: Calling updateMultipleStock with:', stockUpdates);
+          const stockResult = await productsAPI.updateMultipleStock(stockUpdates);
+          console.log('DEBUG: updateMultipleStock result:', stockResult);
+          if (!stockResult.success) {
+            console.error('Error updating stock:', stockResult.error);
+            toast.error('อัปเดตสต็อกสินค้าไม่สำเร็จ');
+          } else {
+            console.log('DEBUG: Stock updated successfully');
+          }
+        } else {
+          console.log('DEBUG: No stock updates to process');
+        }
+      }
+
+      toast.success('บันทึกการรับของเรียบร้อยแล้ว');
+      setShowReceiveDialog(false);
+      setReceiveOrder(null);
+      setReceiveItems([]);
+      
+      // รีเฟรชรายการ PO
+      await refreshOrders();
+      
+      // รีเฟรชข้อมูลสินค้าใน StoreContext เพื่อให้หน้าอื่นๆ อัปเดตด้วย
+      if (window.location.pathname !== '/stock-alerts') {
+        // ถ้าไม่ได้อยู่ที่หน้า stock-alerts ให้รีเฟรชข้อมูลสินค้า
+        const event = new CustomEvent('refreshProducts');
+        window.dispatchEvent(event);
+      }
+    } catch (error) {
+      console.error('Error saving receive:', error);
+      toast.error('เกิดข้อผิดพลาดในการบันทึกการรับของ');
+    }
   };
 
   return (
@@ -473,16 +627,16 @@ const PurchaseOrderList = () => {
                           <Button size="sm" variant="outline" onClick={() => handlePrint(order)} title="พิมพ์ใบขอซื้อ">
                             <Printer className="h-4 w-4" />
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => handleEdit(order)} disabled={order.status === 'approved' || order.status === 'cancelled'}
-                            className={order.status === 'approved' || order.status === 'cancelled' ? 'opacity-50 pointer-events-none' : ''}
-                            title={order.status === 'approved' ? 'ใบขอซื้อที่อนุมัติแล้วไม่สามารถแก้ไขได้' : order.status === 'cancelled' ? 'ใบขอซื้อที่ถูกยกเลิกไม่สามารถแก้ไขได้' : ''}
+                          <Button size="sm" variant="ghost" onClick={() => handleEdit(order)} disabled={order.status === 'approved' || order.status === 'cancelled' || order.status === 'received' || order.status === 'partial_received'}
+                            className={order.status === 'approved' || order.status === 'cancelled' || order.status === 'received' || order.status === 'partial_received' ? 'opacity-50 pointer-events-none' : ''}
+                            title={order.status === 'approved' ? 'ใบขอซื้อที่อนุมัติแล้วไม่สามารถแก้ไขได้' : order.status === 'cancelled' ? 'ใบขอซื้อที่ถูกยกเลิกไม่สามารถแก้ไขได้' : order.status === 'received' || order.status === 'partial_received' ? 'ใบขอซื้อที่รับของแล้วไม่สามารถแก้ไขได้' : ''}
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
                           <Button
                             size="sm"
-                            className={`bg-green-500 hover:bg-green-600 text-white ${order.status === 'approved' || order.status === 'cancelled' ? 'opacity-50 pointer-events-none' : ''}`}
-                            disabled={order.status === 'approved' || order.status === 'cancelled'}
+                            className={`bg-green-500 hover:bg-green-600 text-white ${order.status === 'approved' || order.status === 'cancelled' || order.status === 'received' || order.status === 'partial_received' ? 'opacity-50 pointer-events-none' : ''}`}
+                            disabled={order.status === 'approved' || order.status === 'cancelled' || order.status === 'received' || order.status === 'partial_received'}
                             onClick={() => {
                               if (user?.role === 'admin') {
                                 handleApprove(order);
@@ -495,6 +649,17 @@ const PurchaseOrderList = () => {
                           >
                             <Check className="h-4 w-4 mr-1" /> อนุมัติ
                           </Button>
+                          {/* ปุ่มรับของ - แสดงเฉพาะ PO ที่อนุมัติแล้ว */}
+                          {order.status === 'approved' && (
+                            <Button
+                              size="sm"
+                              className="bg-blue-500 hover:bg-blue-600 text-white"
+                              onClick={() => handleOpenReceiveDialog(order)}
+                              title="รับของเข้า"
+                            >
+                              📦 รับของ
+                            </Button>
+                          )}
                           <Button size="sm" variant="ghost" onClick={() => {
                             console.log('DEBUG user.role:', user?.role, 'order:', order);
                             if (user?.role === 'admin') {
@@ -631,6 +796,119 @@ const PurchaseOrderList = () => {
                 ) : (
                   <div className="bg-gray-50 p-2 rounded text-sm text-gray-700 min-h-[32px]">{selectedOrder.notes || '-'}</div>
                 )}
+              </div>
+            </div>
+          )}
+        </UIDialogContent>
+      </UIDialog>
+
+      {/* Dialog รับของ */}
+      <UIDialog open={showReceiveDialog} onOpenChange={(open) => {
+        setShowReceiveDialog(open);
+        if (!open) {
+          setReceiveOrder(null);
+          setReceiveItems([]);
+        }
+      }}>
+        <UIDialogContent className="max-w-4xl w-full">
+          <UIDialogHeader>
+            <UIDialogTitle>รับของเข้า - {receiveOrder?.id}</UIDialogTitle>
+          </UIDialogHeader>
+          {receiveOrder && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">เลขที่ใบขอซื้อ</Label>
+                  <p className="text-lg font-semibold">{receiveOrder.id}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">วันที่สั่งซื้อ</Label>
+                  <p className="text-lg">{receiveOrder.createdAt ? new Date(receiveOrder.createdAt).toLocaleDateString('th-TH') : '-'}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">สถานะ</Label>
+                  <div className="mt-1">
+                    {getStatusBadge(receiveOrder.status)}
+                  </div>
+                </div>
+              </div>
+
+              {/* ตารางรายการสินค้า */}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ชื่อสินค้า</TableHead>
+                      <TableHead>รหัสสินค้า</TableHead>
+                      <TableHead>Lot</TableHead>
+                      <TableHead>จำนวนสั่งซื้อ</TableHead>
+                      <TableHead>จำนวนรับจริง</TableHead>
+                      <TableHead>หมายเหตุ</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {receiveItems.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.name}</TableCell>
+                        <TableCell>{item.productCode || '-'}</TableCell>
+                        <TableCell>{item.lotCode || '-'}</TableCell>
+                        <TableCell className="text-center">{item.currentQuantity}</TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            value={item.receivedQuantity}
+                            onChange={(e) => updateReceivedQuantity(item.id, parseInt(e.target.value) || 0)}
+                            min="0"
+                            max={item.currentQuantity * 2} // อนุญาตให้รับเกินได้ 2 เท่า
+                            className="w-20 text-center"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="text"
+                            value={item.receivedNotes}
+                            onChange={(e) => updateReceivedNotes(item.id, e.target.value)}
+                            placeholder="หมายเหตุ..."
+                            className="w-32"
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* สรุปการรับของ */}
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-blue-800 mb-2">สรุปการรับของ</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600">จำนวนรายการ:</span>
+                    <span className="ml-2 font-medium">{receiveItems.length} รายการ</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">รับครบ:</span>
+                    <span className="ml-2 font-medium text-green-600">
+                      {receiveItems.filter(item => item.receivedQuantity >= item.currentQuantity).length} รายการ
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">รับไม่ครบ:</span>
+                    <span className="ml-2 font-medium text-orange-600">
+                      {receiveItems.filter(item => item.receivedQuantity < item.currentQuantity && item.receivedQuantity > 0).length} รายการ
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ปุ่มดำเนินการ */}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowReceiveDialog(false)}>
+                  ยกเลิก
+                </Button>
+                <Button onClick={handleSaveReceive} className="bg-blue-500 hover:bg-blue-600">
+                  บันทึกการรับของ
+                </Button>
               </div>
             </div>
           )}
