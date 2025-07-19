@@ -1,0 +1,80 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 142 33% 98%;
+    --foreground: 142 10% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 142 10% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 142 10% 10%;
+
+    --primary: 142 61% 29%;
+    --primary-foreground: 142 5% 98%;
+
+    --secondary: 142 14% 92%;
+    --secondary-foreground: 142 35% 20%;
+
+    --muted: 142 14% 92%;
+    --muted-foreground: 142 5% 45%;
+
+    --accent: 142 10% 92%;
+    --accent-foreground: 142 35% 20%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 142 5% 98%;
+
+    --border: 142 20% 88%;
+    --input: 142 20% 88%;
+    --ring: 142 61% 29%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 142 25% 95%;
+    --sidebar-foreground: 142 10% 20%;
+    --sidebar-primary: 142 61% 29%;
+    --sidebar-primary-foreground: 142 5% 98%;
+    --sidebar-accent: 142 10% 90%;
+    --sidebar-accent-foreground: 142 10% 20%;
+    --sidebar-border: 142 15% 85%;
+    --sidebar-ring: 142 61% 29%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer utilities {
+  .pos-heading {
+    @apply text-2xl font-semibold text-grocery-700;
+  }
+  
+  .pos-subheading {
+    @apply text-lg font-medium text-grocery-600;
+  }
+  
+  .data-card {
+    @apply bg-white p-4 rounded-lg shadow-sm border border-grocery-100;
+  }
+  
+  .action-button {
+    @apply bg-grocery-500 hover:bg-grocery-600 text-white py-2 px-4 rounded-md transition-colors;
+  }
+  
+  .secondary-button {
+    @apply bg-grocery-100 hover:bg-grocery-200 text-grocery-700 py-2 px-4 rounded-md transition-colors;
+  }
+}

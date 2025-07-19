@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Purchase Order Dialog</title>
+</head>
+<body>
+    <h1>Test Purchase Order Dialog</h1>
+    <p>เปิด browser console และดู log เพื่อตรวจสอบปัญหา</p>
+    <script>
+        console.log('Test file loaded');
+        
+        // Simulate the data structure
+        const testProducts = [
+            {
+                id: '1',
+                name: 'Test Product',
+                price: 100,
+                productCode: 'TEST001',
+                category: 'Test Category',
+                minStock: 5,
+                maxStock: 20,
+                seller: 'Test Seller',
+                stock: 0,
+                active: true
+            }
+        ];
+        
+        console.log('Test products:', testProducts);
+        
+        // Check if localStorage is working
+        try {
+            localStorage.setItem('test', 'test');
+            console.log('localStorage is working');
+        } catch (error) {
+            console.error('localStorage error:', error);
+        }
+    </script>
+</body>
+</html> 
