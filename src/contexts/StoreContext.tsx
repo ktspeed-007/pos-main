@@ -120,6 +120,17 @@ export const mapProductFields = (product: any): Product => ({
   created_at: product.created_at,
 });
 
+const mapSaleFields = (sale: any): Sale => ({
+  id: sale.id,
+  items: sale.items,
+  total: typeof sale.total === 'string' ? parseFloat(sale.total) : sale.total,
+  paymentMethod: sale.paymentMethod || sale.paymentmethod || '',
+  timestamp: sale.timestamp ? new Date(sale.timestamp) : new Date(),
+  receivedAmount: sale.receivedAmount !== undefined ? parseFloat(sale.receivedAmount) : (sale.receivedamount !== undefined ? parseFloat(sale.receivedamount) : 0),
+  changeAmount: sale.changeAmount !== undefined ? parseFloat(sale.changeAmount) : (sale.changeamount !== undefined ? parseFloat(sale.changeamount) : 0),
+  canceled: sale.canceled ?? false,
+});
+
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<SaleItem[]>([]);
@@ -129,7 +140,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // โหลดข้อมูลจาก API เท่านั้น
   useEffect(() => {
     fetchProducts();
-    // TODO: สามารถเพิ่ม fetchSales, fetchLogs ถ้ามี API
+    fetchSales(); // <-- เพิ่มบรรทัดนี้
+    // TODO: สามารถเพิ่ม fetchLogs ถ้ามี API
   }, []);
 
   // เพิ่ม event listener สำหรับรีเฟรชข้อมูลสินค้า
@@ -153,6 +165,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setProducts(response.data.map(mapProductFields));
     } else {
       setProducts([]);
+    }
+  };
+
+  // ฟังก์ชันโหลดข้อมูลขายใหม่จาก API
+  const fetchSales = async () => {
+    const response = await salesAPI.getAll();
+    if (response.success && Array.isArray(response.data)) {
+      setSales(response.data.map(mapSaleFields));
+    } else {
+      setSales([]);
     }
   };
 
@@ -254,13 +276,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     try {
       // Try API first
-      const response = await salesAPI.create({
+      // Ensure no timestamp is sent to backend
+      const salePayload = {
         items: saleItems,
         total,
         paymentMethod,
         receivedAmount,
         changeAmount,
-      });
+      };
+      const response = await salesAPI.create(salePayload);
 
       if (response.success && response.data?.saleId) {
         const newSale: Sale = {

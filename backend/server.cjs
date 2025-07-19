@@ -604,13 +604,58 @@ app.get('/api/sales', async (req, res) => {
 });
 
 app.post('/api/sales', async (req, res) => {
-  const { id, items, total, paymentMethod, timestamp, receivedAmount, changeAmount, canceled } = req.body;
+  // Remove timestamp if present in the request body
+  if ('timestamp' in req.body) {
+    delete req.body.timestamp;
+  }
+  const { items, total, paymentMethod, receivedAmount, changeAmount, canceled } = req.body;
+  let id;
   try {
+    console.log('POST /api/sales body:', req.body);
+
+    // Generate id: DDMMYYYY + running number 4 digits
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yyyy = now.getFullYear();
+    const dateStr = dd + mm + yyyy;
+    const prefix = `${dateStr}`;
     const result = await pool.query(
-      'INSERT INTO sales (id, items, total, paymentMethod, timestamp, receivedAmount, changeAmount, canceled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-      [id, JSON.stringify(items), total, paymentMethod, timestamp, receivedAmount, changeAmount, canceled || false]
+      "SELECT id FROM sales WHERE id LIKE $1 ORDER BY id DESC LIMIT 1",
+      [`${prefix}%`]
     );
-    res.status(201).json({ success: true, data: result.rows[0] });
+    let nextSeq = 1;
+    if (result.rows.length > 0) {
+      const lastId = result.rows[0].id;
+      const lastSeq = parseInt(lastId.slice(prefix.length), 10);
+      nextSeq = lastSeq + 1;
+    }
+    const seqStr = String(nextSeq).padStart(4, '0');
+    id = `${prefix}${seqStr}`;
+    console.log('Final sale id:', id);
+
+    // Insert sale with all-lowercase column names, never include timestamp
+    await pool.query(
+      'INSERT INTO sales (id, items, total, paymentmethod, receivedamount, changeamount, canceled) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [id, JSON.stringify(items), total, paymentMethod, receivedAmount, changeAmount, canceled || false]
+    );
+
+    // Deduct stock for each sold item, with log
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        if (item.id && item.quantity) {
+          console.log('Deducting stock for product', item.id, 'qty', item.quantity);
+          await pool.query(
+            'UPDATE products SET stock = stock - $1 WHERE id = $2',
+            [item.quantity, item.id]
+          );
+        }
+      }
+    }
+
+    // Fetch the inserted sale to get the correct timestamp
+    const result2 = await pool.query('SELECT * FROM sales WHERE id = $1', [id]);
+    res.status(201).json({ success: true, data: result2.rows[0] });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, error: err.message });

@@ -50,8 +50,8 @@ const Layout = ({ children, title = 'Grocery Guru POS' }: LayoutProps) => {
     try {
       const res = await shopInfoAPI.save(info);
       if (res.success) {
-        localStorage.setItem('groceryGuruShopInfo', JSON.stringify(info));
-        setShopDialogOpen(false);
+    localStorage.setItem('groceryGuruShopInfo', JSON.stringify(info));
+    setShopDialogOpen(false);
         window.location.reload();
       } else {
         alert('เกิดข้อผิดพลาดในการบันทึกข้อมูลร้านค้า');

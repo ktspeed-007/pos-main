@@ -714,13 +714,13 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
                 
                 <div className="flex items-center gap-2">
                   {status === 'draft' && (
-                    <Button 
-                      size="sm"
-                      onClick={handleSave}
-                    >
-                      <Save className="h-4 w-4 mr-1" />
-                      บันทึก
-                    </Button>
+                      <Button 
+                        size="sm"
+                        onClick={handleSave}
+                      >
+                        <Save className="h-4 w-4 mr-1" />
+                        บันทึก
+                      </Button>
                   )}
                   
                   {status === 'pending' && user?.role === 'admin' && (

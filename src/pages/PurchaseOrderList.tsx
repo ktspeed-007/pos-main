@@ -942,7 +942,7 @@ const PurchaseOrderList = () => {
                 console.log('DEBUG cancelNote:', cancelNote, 'cancelOrder:', cancelOrder);
                 if (cancelOrder && cancelNote.trim()) {
                   handleCancel(cancelOrder, cancelNote);
-                  setShowCancelDialog(false);
+                setShowCancelDialog(false);
                   setCancelNote('');
                   setCancelOrder(null);
                 } else {

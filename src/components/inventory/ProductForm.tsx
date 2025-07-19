@@ -51,7 +51,7 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
   
   // เพิ่ม state เช็คว่า master data โหลดเสร็จหรือยัง
   const [mastersLoaded, setMastersLoaded] = useState(false);
-
+  
   useEffect(() => {
     Promise.all([
       sellerAPI.getAll().then(res => {
@@ -95,7 +95,7 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
     minStock: product?.minStock ?? 0,
     maxStock: product?.maxStock ?? 0,
   });
-
+  
   const [errors, setErrors] = useState({
     productCode: '',
     lotCode: '',
@@ -106,7 +106,7 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
     category: '',
     sellerId: '',
   });
-
+  
   // useEffect sync formData กับ product เฉพาะเมื่อ product เปลี่ยนและ master data โหลดเสร็จ
   useEffect(() => {
     console.log('ProductForm: useEffect [product, mastersLoaded]', { product, mastersLoaded });
@@ -470,7 +470,7 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
               sellers.map((seller: any) => (
                 <SelectItem key={seller.id} value={String(seller.id)}>
                   {seller.shopCode ? `${seller.shopCode} - ${seller.name}` : seller.name}
-                </SelectItem>
+              </SelectItem>
               ))
             ) : (
               <SelectItem value="none" disabled>ไม่มีข้อมูลผู้ขาย</SelectItem>

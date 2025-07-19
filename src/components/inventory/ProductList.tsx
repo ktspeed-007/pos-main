@@ -173,7 +173,7 @@ const ProductList = () => {
       await refreshProducts();
       // ส่ง event เพื่อรีเฟรชข้อมูลในหน้าอื่นๆ
       window.dispatchEvent(new CustomEvent('refreshProducts'));
-      toast.success(`เพิ่มสต็อก ${addStockAmount} ชิ้นให้ ${stockProduct.name}`);
+    toast.success(`เพิ่มสต็อก ${addStockAmount} ชิ้นให้ ${stockProduct.name}`);
     } catch (e) {
       toast.error('เกิดข้อผิดพลาดในการอัปเดตสต็อก');
     }
