@@ -17,10 +17,11 @@ const Purchase = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showPurchaseOrderDialog, setShowPurchaseOrderDialog] = useState(false);
+  const [showAllProducts, setShowAllProducts] = useState(false); // <--- เพิ่ม state
 
-  // Get all products that are not in stock (stock = 0)
+  // ปรับ filter ตามตัวเลือก showAllProducts
   const availableProducts = products.filter(product => 
-    product.active && product.stock === 0
+    product.active && (showAllProducts ? true : product.stock === 0)
   );
 
   // Filter products based on search and category
@@ -29,9 +30,7 @@ const Purchase = () => {
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (product.productCode && product.productCode.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (product.barcode && product.barcode.toString().includes(searchQuery));
-    
     const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
-    
     return matchesSearch && matchesCategory;
   });
 
@@ -123,6 +122,19 @@ const Purchase = () => {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              {/* เพิ่มตัวเลือก filter แสดงสินค้าทั้งหมด/ไม่มีในสต๊อก */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="showAllProducts"
+                  checked={showAllProducts}
+                  onChange={e => setShowAllProducts(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="showAllProducts" className="cursor-pointer select-none">
+                  แสดงรหัสสินค้าทั้งหมด
+                </Label>
               </div>
             </div>
 
