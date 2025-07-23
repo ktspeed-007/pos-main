@@ -24,6 +24,7 @@ const WarehouseSettings = () => {
   const [deleteId, setDeleteId] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [codeError, setCodeError] = useState('');
   const auth = useContext(AuthContext);
 
   useEffect(() => {
@@ -37,23 +38,31 @@ const WarehouseSettings = () => {
     });
   }, []);
 
+  // เพิ่ม useEffect สำหรับ generate รหัสคลังสินค้าอัตโนมัติเมื่อ dialog เปิด (เฉพาะกรณีเพิ่มใหม่)
+  useEffect(() => {
+    if (dialogOpen && !editingId) {
+      setInfo(prev => ({
+        ...prev,
+        warehouseCode: getNextWarehouseCode()
+      }));
+    }
+    // eslint-disable-next-line
+  }, [dialogOpen, warehouseList]);
+
   const getNextWarehouseCode = () => {
-    if (warehouseList.length === 0) return 'W-00001';
-    const nums = warehouseList
-      .map(w => w.warehouseCode)
-      .filter(code => /^W-\d{5}$/.test(code))
-      .map(code => parseInt(code.slice(2), 10));
-    const max = nums.length > 0 ? Math.max(...nums) : 0;
+    const codes = warehouseList
+      .map(w => (w.warehouseCode || w.warehousecode || '').match(/^W-(\d{5})$/))
+      .filter(Boolean)
+      .map(match => parseInt(match[1], 10));
+    const max = codes.length > 0 ? Math.max(...codes) : 0;
     const next = (max + 1).toString().padStart(5, '0');
     return `W-${next}`;
   };
 
   const handleAdd = () => {
-    setInfo({
-      ...defaultWarehouse,
-      warehouseCode: getNextWarehouseCode()
-    });
+    setInfo(defaultWarehouse);
     setEditingId('');
+    setCodeError('');
     setDialogOpen(true);
   };
 
@@ -68,6 +77,7 @@ const WarehouseSettings = () => {
       });
       setEditingId(id);
       setDialogOpen(true);
+      setCodeError('');
     }
   };
 
@@ -82,17 +92,40 @@ const WarehouseSettings = () => {
       toast.error('กรุณากรอกชื่อคลังสินค้า');
       return;
     }
-    if (editingId) {
-      // update
-      await warehouseAPI.update(editingId, info);
+    // ตรวจสอบรหัสซ้ำ (ยกเว้นกรณีแก้ไขและ id เดิม)
+    const code = info.warehouseCode.trim();
+    const isDuplicate = warehouseList.some(w => (w.warehouseCode || w.warehousecode) === code && w.id !== editingId);
+    if (isDuplicate) {
+      setCodeError('รหัสคลังสินค้านี้ถูกใช้ไปแล้ว');
+      toast.error('รหัสคลังสินค้านี้ถูกใช้ไปแล้ว');
+      return;
     } else {
-      // create
-      await warehouseAPI.create(info);
+      setCodeError('');
     }
-    // reload from API
-    const res = await warehouseAPI.getAll();
-    setWarehouseList(res.success && Array.isArray(res.data) ? res.data : []);
-    setDialogOpen(false);
+    try {
+      if (editingId) {
+        // update
+        const updateData = { ...info, id: editingId };
+        console.log('handleSave: update', updateData);
+        await warehouseAPI.update(editingId, updateData);
+      } else {
+        // create
+        console.log('handleSave: create', info);
+        await warehouseAPI.create(info);
+      }
+      // reload from API
+      const res = await warehouseAPI.getAll();
+      setWarehouseList(res.success && Array.isArray(res.data) ? res.data : []);
+      setDialogOpen(false);
+    } catch (err: any) {
+      console.error('handleSave error', err);
+      if (err?.response?.status === 409) {
+        setCodeError('รหัสคลังสินค้านี้ถูกใช้ไปแล้ว');
+        toast.error('รหัสคลังสินค้านี้ถูกใช้ไปแล้ว');
+      } else {
+        toast.error('เกิดข้อผิดพลาดในการบันทึก');
+      }
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -166,25 +199,28 @@ const WarehouseSettings = () => {
                   </td>
                 </tr>
               ) : (
-                warehouseList.map(item => (
-                  <tr key={item.id}>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.warehouseCode || item.warehousecode}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{item.name}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.description}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <Button size="sm" variant="outline" onClick={() => handleEdit(item.id)} className="text-xs">แก้ไข</Button>
-                        <Button size="sm" variant="destructive" onClick={() => handleDelete(item.id)} className="text-xs">ลบ</Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                warehouseList
+                  .slice()
+                  .sort((a, b) => (a.warehouseCode || a.warehousecode).localeCompare(b.warehouseCode || b.warehousecode))
+                  .map(item => (
+                    <tr key={item.id}>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{item.warehouseCode || item.warehousecode}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{item.name}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{item.description}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <Button size="sm" variant="outline" onClick={() => handleEdit(item.id)} className="text-xs">แก้ไข</Button>
+                          <Button size="sm" variant="destructive" onClick={() => handleDelete(item.id)} className="text-xs">ลบ</Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
               )}
             </tbody>
           </table>
@@ -204,6 +240,7 @@ const WarehouseSettings = () => {
                 onChange={e => setInfo({ ...info, warehouseCode: e.target.value })}
                 placeholder="รหัสคลัง"
               />
+              {codeError && <div className="text-red-500 text-xs mt-1">{codeError}</div>}
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">ชื่อคลัง</label>

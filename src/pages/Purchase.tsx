@@ -10,14 +10,15 @@ import { toast } from 'sonner';
 import { ShoppingCart, Plus, Search, X } from 'lucide-react';
 import { useStore } from '../contexts/StoreContext';
 import PurchaseOrderDialog from '../components/inventory/PurchaseOrderDialog';
+import { Category } from '@/services/api';
 
 const Purchase = () => {
-  const { products, addLog } = useStore();
+  const { products, categories, addLog } = useStore();
   const [selectedProducts, setSelectedProducts] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategoryId, setSelectedCategoryId] = useState('all');
   const [showPurchaseOrderDialog, setShowPurchaseOrderDialog] = useState(false);
-  const [showAllProducts, setShowAllProducts] = useState(false); // <--- เพิ่ม state
+  const [showAllProducts, setShowAllProducts] = useState(false);
 
   // ปรับ filter ตามตัวเลือก showAllProducts
   const availableProducts = products.filter(product => 
@@ -30,12 +31,9 @@ const Purchase = () => {
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (product.productCode && product.productCode.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (product.barcode && product.barcode.toString().includes(searchQuery));
-    const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
+    const matchesCategory = selectedCategoryId === 'all' || String(product.categoryId) === selectedCategoryId;
     return matchesSearch && matchesCategory;
   });
-
-  // Get unique categories
-  const categories = ['all', ...Array.from(new Set(availableProducts.map(p => p.category).filter(Boolean)))];
 
   const handleAddToPurchase = (product: any) => {
     // Check if product is already in the list
@@ -110,14 +108,15 @@ const Purchase = () => {
               
               <div>
                 <Label htmlFor="category">หมวดหมู่</Label>
-                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
                   <SelectTrigger>
                     <SelectValue placeholder="เลือกหมวดหมู่" />
                   </SelectTrigger>
                   <SelectContent>
-                    {categories.map((category) => (
-                      <SelectItem key={category} value={category}>
-                        {category === 'all' ? 'ทั้งหมด' : category}
+                    <SelectItem value="all">ทั้งหมด</SelectItem>
+                    {categories.map((category: Category) => (
+                      <SelectItem key={category.id} value={String(category.id)}>
+                        {category.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -155,13 +154,17 @@ const Purchase = () => {
                         <div className="text-sm text-gray-600 mt-1">
                           <p>รหัส: {product.productCode || '-'}</p>
                           <p>บาร์โค้ด: {product.barcode || '-'}</p>
-                          <p>หมวดหมู่: {product.category || '-'}</p>
+                          <p>หมวดหมู่: {product.categoryName || '-'}</p>
                           <p>ราคา: ฿{product.price.toFixed(2)}</p>
                           <p>ผู้ขาย: {product.seller || '-'}</p>
                           <p>จำนวนที่แนะนำ: {product.maxStock || 10} ชิ้น</p>
                         </div>
                         <div className="mt-2">
-                          <Badge variant="destructive">ไม่มีในสต็อก</Badge>
+                          {product.stock === 0 ? (
+                            <Badge variant="destructive">ไม่มีในสต็อก</Badge>
+                          ) : (
+                            <Badge variant="default">มีในสต็อก: {product.stock} ชิ้น</Badge>
+                          )}
                         </div>
                       </div>
                       <Button

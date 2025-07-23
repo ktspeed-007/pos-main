@@ -24,9 +24,10 @@ import { sellerAPI } from '@/services/api/sellerAPI';
 import { warehouseAPI } from '@/services/api/warehouseAPI';
 import { storageLocationAPI } from '@/services/api/storageLocationAPI';
 import { mapProductFields } from '../../contexts/StoreContext';
+import { Category } from '@/services/api';
 
 const ProductList = () => {
-  const { products, deleteProduct, toggleProductActive, updateProduct, setProducts, fetchProducts } = useStore();
+  const { products, categories, deleteProduct, toggleProductActive, updateProduct, setProducts, fetchProducts } = useStore();
   
   // เพิ่ม event listener สำหรับรีเฟรชข้อมูลสินค้า
   useEffect(() => {
@@ -42,7 +43,7 @@ const ProductList = () => {
   }, [fetchProducts]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredProducts, setFilteredProducts] = useState(products);
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategoryId, setSelectedCategoryId] = useState('all');
   const [showInactiveProducts, setShowInactiveProducts] = useState(false);
   const [showAddProductDialog, setShowAddProductDialog] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
@@ -89,14 +90,6 @@ const ProductList = () => {
   const [newLotMinStock, setNewLotMinStock] = useState('');
   const [newLotMaxStock, setNewLotMaxStock] = useState('');
   
-  // Get unique categories from products
-  const categories = ['all', ...new Set(products.map(product => product.category))];
-  
-  // Get products with low stock for alerts
-  const lowStockProducts = products.filter(product => {
-    return product.minStock && product.stock <= product.minStock && product.active;
-  });
-  
   // Filter products when search query, category, or product list changes
   useEffect(() => {
     let filtered = [...products];
@@ -107,8 +100,8 @@ const ProductList = () => {
     }
     
     // Filter by category if not 'all'
-    if (selectedCategory !== 'all') {
-      filtered = filtered.filter(product => product.category === selectedCategory);
+    if (selectedCategoryId !== 'all') {
+      filtered = filtered.filter(product => String(product.categoryId) === selectedCategoryId);
     }
     
     // Filter by search query
@@ -123,7 +116,7 @@ const ProductList = () => {
     }
     
     setFilteredProducts(filtered);
-  }, [searchQuery, selectedCategory, showInactiveProducts, products]);
+  }, [searchQuery, selectedCategoryId, showInactiveProducts, products]);
   
   // Debug log
   console.log('products from store:', products);
@@ -315,12 +308,13 @@ const ProductList = () => {
           <div className="flex gap-2">
             <select
               className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-grocery-500"
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
+              value={selectedCategoryId}
+              onChange={(e) => setSelectedCategoryId(e.target.value)}
             >
-              {categories.map((category) => (
-                <option key={category} value={category}>
-                  {category === 'all' ? 'ทุกหมวดหมู่' : category}
+              <option value="all">ทุกหมวดหมู่</option>
+              {categories.map((category: Category) => (
+                <option key={category.id} value={String(category.id)}>
+                  {category.name}
                 </option>
               ))}
             </select>
@@ -370,6 +364,9 @@ const ProductList = () => {
                   คงเหลือ
                 </th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  หมวดหมู่
+                </th>
+                <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">
                   รหัสสินค้า
                 </th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -392,7 +389,7 @@ const ProductList = () => {
             <tbody className="divide-y divide-gray-200">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-8 text-gray-500">
+                  <td colSpan={10} className="text-center py-8 text-gray-500">
                     ไม่พบสินค้า
                   </td>
                 </tr>
@@ -417,6 +414,9 @@ const ProductList = () => {
                           💡 แนะนำสั่ง: {Math.max(0, product.maxStock - product.stock)}
                         </div>
                       )}
+                    </td>
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{product.categoryName || '-'}</div>
                     </td>
                     <td className="py-3 px-4 whitespace-nowrap">
                       <div className="text-xs text-gray-500">{product.productCode || '-'}</div>

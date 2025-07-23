@@ -12,25 +12,23 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { Category } from '@/services/api';
 
 const StockReport = () => {
-  const { products } = useStore();
+  const { products, categories } = useStore();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategoryId, setSelectedCategoryId] = useState('all');
   const [filteredProducts, setFilteredProducts] = useState(products);
-  const [sortBy, setSortBy] = useState<'name' | 'stock' | 'category'>('stock');
+  const [sortBy, setSortBy] = useState<'name' | 'stock' | 'categoryName'>('stock');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  
-  // Get unique categories
-  const categories = ['all', ...new Set(products.map(product => product.category))];
   
   // Filter and sort products
   useEffect(() => {
     let filtered = [...products];
     
     // Filter by category
-    if (selectedCategory !== 'all') {
-      filtered = filtered.filter(product => product.category === selectedCategory);
+    if (selectedCategoryId !== 'all') {
+      filtered = filtered.filter(product => String(product.categoryId) === selectedCategoryId);
     }
     
     // Filter by search
@@ -54,8 +52,8 @@ const StockReport = () => {
         case 'stock':
           comparison = a.stock - b.stock;
           break;
-        case 'category':
-          comparison = a.category.localeCompare(b.category);
+        case 'categoryName':
+          comparison = (a.categoryName || '').localeCompare(b.categoryName || '');
           break;
       }
       
@@ -63,7 +61,7 @@ const StockReport = () => {
     });
     
     setFilteredProducts(filtered);
-  }, [products, selectedCategory, searchQuery, sortBy, sortOrder]);
+  }, [products, selectedCategoryId, searchQuery, sortBy, sortOrder]);
   
   // Low stock products
   const lowStockProducts = filteredProducts.filter(product => product.stock <= 5 && product.active);
@@ -82,7 +80,7 @@ const StockReport = () => {
     }));
   
   // Toggle sort
-  const toggleSort = (column: 'name' | 'stock' | 'category') => {
+  const toggleSort = (column: 'name' | 'stock' | 'categoryName') => {
     if (sortBy === column) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
@@ -108,12 +106,13 @@ const StockReport = () => {
           <div>
             <select
               className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-grocery-500"
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
+              value={selectedCategoryId}
+              onChange={(e) => setSelectedCategoryId(e.target.value)}
             >
-              {categories.map((category) => (
-                <option key={category} value={category}>
-                  {category === 'all' ? 'ทุกหมวดหมู่' : category}
+              <option value="all">ทุกหมวดหมู่</option>
+              {categories.map((category: Category) => (
+                <option key={category.id} value={String(category.id)}>
+                  {category.name}
                 </option>
               ))}
             </select>
@@ -200,10 +199,10 @@ const StockReport = () => {
                 </th>
                 <th 
                   className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                  onClick={() => toggleSort('category')}
+                  onClick={() => toggleSort('categoryName')}
                 >
                   หมวดหมู่
-                  {sortBy === 'category' && (
+                  {sortBy === 'categoryName' && (
                     <span className="ml-1">{sortOrder === 'asc' ? '▲' : '▼'}</span>
                   )}
                 </th>
@@ -236,7 +235,7 @@ const StockReport = () => {
                       <div className="text-xs text-gray-500">{product.barcode}</div>
                     </td>
                     <td className="py-3 px-4">
-                      <Badge variant="outline">{product.category}</Badge>
+                      <Badge variant="outline">{product.categoryName || '-'}</Badge>
                     </td>
                     <td className="py-3 px-4">
                       {product.stock === 0 ? (

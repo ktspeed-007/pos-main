@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { productsAPI, salesAPI, authAPI } from '../services/api';
+import { productsAPI, salesAPI, authAPI, categoryAPI, Category } from '../services/api';
 
 type Product = {
   id: string;
@@ -9,7 +9,8 @@ type Product = {
   barcode?: string;
   qrcode?: string;
   stock: number;
-  category?: string;
+  categoryId?: number;
+  categoryName?: string;
   active: boolean;
   created_at: string;
   productCode?: string;
@@ -63,6 +64,7 @@ type Log = {
 
 type StoreContextType = {
   products: Product[];
+  categories: Category[];
   cart: SaleItem[];
   sales: Sale[];
   logs: Log[];
@@ -83,6 +85,7 @@ type StoreContextType = {
   addLog: (action: string, user: string, details?: string) => void;
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
   fetchProducts: () => Promise<void>; // เพิ่ม fetchProducts ให้ใช้ใน component อื่น
+  fetchCategories: () => Promise<void>;
 };
 
 const StoreContext = createContext<StoreContextType | null>(null);
@@ -95,14 +98,15 @@ export const mapProductFields = (product: any): Product => ({
   barcode: product.barcode || '',
   name: product.name || '',
   price: parseFloat(product.price?.toString() || product.price || '0'),
-  stock: product.stock ?? 0,
-  category: product.category || '',
+  stock: product.stock ?? product.stock ?? 0,
+  categoryId: product.categoryId ?? product.category_id,
+  categoryName: product.categoryName ?? product.category_name,
   sellerId: product.sellerId ? String(product.sellerId) : (product.sellerid ? String(product.sellerid) : ''),
-  seller: product.seller || '',
+  seller: product.seller || product.seller_name || '',
   warehouseId: product.warehouseId || product.warehouseid || '',
-  warehouseName: product.warehouseName || product.warehousename || '',
+  warehouseName: product.warehouseName || product.warehouse_name || '',
   storageLocationId: product.storageLocationId || product.storagelocationid || '',
-  storageLocationName: product.storageLocationName || product.storagelocationname || '',
+  storageLocationName: product.storageLocationName || product.storage_location_name || '',
   productionDate: product.productionDate
     ? product.productionDate.slice(0, 10)
     : (product.productiondate ? product.productiondate.slice(0, 10) : ''),
@@ -114,10 +118,10 @@ export const mapProductFields = (product: any): Product => ({
   dueDate: product.dueDate
     ? product.dueDate.slice(0, 10)
     : (product.duedate ? product.duedate.slice(0, 10) : ''),
-  active: product.active ?? true,
+  active: product.active ?? product.active ?? true,
   minStock: product.minStock ?? product.minstock ?? 0,
   maxStock: product.maxStock ?? product.maxstock ?? 0,
-  created_at: product.created_at,
+  created_at: product.created_at || product.createdAt,
 });
 
 const mapSaleFields = (sale: any): Sale => ({
@@ -133,6 +137,7 @@ const mapSaleFields = (sale: any): Sale => ({
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [cart, setCart] = useState<SaleItem[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
@@ -140,7 +145,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // โหลดข้อมูลจาก API เท่านั้น
   useEffect(() => {
     fetchProducts();
-    fetchSales(); // <-- เพิ่มบรรทัดนี้
+    fetchSales();
+    fetchCategories();
     // TODO: สามารถเพิ่ม fetchLogs ถ้ามี API
   }, []);
 
@@ -165,6 +171,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setProducts(response.data.map(mapProductFields));
     } else {
       setProducts([]);
+    }
+  };
+
+  // ฟังก์ชันโหลดข้อมูลหมวดหมู่ใหม่จาก API
+  const fetchCategories = async () => {
+    const response = await categoryAPI.getAll();
+    if (response.success && Array.isArray(response.data)) {
+      setCategories(response.data);
+    } else {
+      setCategories([]);
     }
   };
 
@@ -472,6 +488,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   return (
     <StoreContext.Provider value={{
       products,
+      categories,
       cart,
       sales,
       logs,
@@ -492,6 +509,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       addLog,
       setProducts,
       fetchProducts, // export fetchProducts ให้ใช้ใน component อื่น
+      fetchCategories,
     }}>
       {children}
     </StoreContext.Provider>

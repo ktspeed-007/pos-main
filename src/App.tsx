@@ -22,6 +22,7 @@ import WarehouseSettings from "./pages/WarehouseSettings";
 import StorageLocationSettings from "./pages/StorageLocationSettings";
 import Purchase from './pages/Purchase';
 import PurchaseOrderList from './pages/PurchaseOrderList';
+import CategorySettings from './pages/CategorySettings';
 import { useState, useEffect } from "react";
 
 const queryClient = new QueryClient();
@@ -224,6 +225,17 @@ const AppRoutes = () => {
           <ProtectedRoute requiredRole="staff">
             <Layout title="ใบขอซื้อ">
               <PurchaseOrderList />
+            </Layout>
+          </ProtectedRoute>
+        } 
+      />
+
+      <Route 
+        path="/category-settings" 
+        element={
+          <ProtectedRoute requiredRole="admin">
+            <Layout title="ตั้งค่าหมวดหมู่">
+              <CategorySettings />
             </Layout>
           </ProtectedRoute>
         } 

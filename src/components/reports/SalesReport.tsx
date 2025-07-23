@@ -12,9 +12,10 @@ import {
   LineChart,
   Line,
 } from 'recharts';
+import { Category } from '@/services/api';
 
 const SalesReport = () => {
-  const { products, sales, getDailySales, getMonthlySales, getYearlySales } = useStore();
+  const { products, sales, categories, getDailySales, getMonthlySales, getYearlySales } = useStore();
   const [reportType, setReportType] = useState<'daily' | 'monthly' | 'yearly' | 'product' | 'single-product' | 'category' | 'best-sellers'>('daily');
   const [reportData, setReportData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -31,11 +32,8 @@ const SalesReport = () => {
   
   // New filters
   const [selectedProduct, setSelectedProduct] = useState<string>('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const [dateRange, setDateRange] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
-  
-  // Get unique categories
-  const categories = Array.from(new Set(products.map(p => p.category))).filter(Boolean);
   
   // Generate report data based on type
   useEffect(() => {
@@ -237,14 +235,14 @@ const SalesReport = () => {
       }
       
       case 'category': {
-        if (!selectedCategory) {
+        if (!selectedCategoryId) {
           setReportData([]);
           setIsLoading(false);
           return;
         }
         
         // Filter products by category
-        const categoryProducts = products.filter(p => p.category === selectedCategory);
+        const categoryProducts = products.filter(p => String(p.categoryId) === selectedCategoryId);
         const categoryProductIds = categoryProducts.map(p => p.id);
         
         // Calculate sales for category
@@ -289,7 +287,7 @@ const SalesReport = () => {
             name: product.name, 
             sales: 0, 
             count: 0, 
-            category: product.category || 'ไม่มีหมวดหมู่',
+            category: product.categoryName || 'ไม่มีหมวดหมู่',
             price: product.price 
           };
         });
@@ -315,7 +313,7 @@ const SalesReport = () => {
         break;
       }
     }
-  }, [reportType, selectedDate, selectedMonth, selectedYear, selectedProduct, selectedCategory, dateRange, sales, products, getDailySales, getMonthlySales, getYearlySales]);
+  }, [reportType, selectedDate, selectedMonth, selectedYear, selectedProduct, selectedCategoryId, dateRange, sales, products, categories, getDailySales, getMonthlySales, getYearlySales]);
   
   // Calculate totals
   const totalSales = reportData.reduce((sum, item) => sum + item.sales, 0);
@@ -417,13 +415,13 @@ const SalesReport = () => {
             <div>
               <select
                 className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-grocery-500"
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
+                value={selectedCategoryId}
+                onChange={(e) => setSelectedCategoryId(e.target.value)}
               >
                 <option value="">เลือกหมวดหมู่</option>
-                {categories.map(category => (
-                  <option key={category} value={category}>
-                    {category}
+                {categories.map((category: Category) => (
+                  <option key={category.id} value={String(category.id)}>
+                    {category.name}
                   </option>
                 ))}
               </select>
@@ -440,7 +438,7 @@ const SalesReport = () => {
             {reportType === 'yearly' && `รายงานยอดขายประจำปี ${selectedYear}`}
             {reportType === 'product' && `รายงานยอดขายตามสินค้า (10 อันดับแรก)`}
             {reportType === 'single-product' && selectedProduct && `รายงานยอดขาย: ${products.find(p => p.id === selectedProduct)?.name}`}
-            {reportType === 'category' && selectedCategory && `รายงานยอดขายหมวดหมู่: ${selectedCategory}`}
+            {reportType === 'category' && selectedCategoryId && `รายงานยอดขายหมวดหมู่: ${categories.find(c => String(c.id) === selectedCategoryId)?.name}`}
             {reportType === 'best-sellers' && `สินค้าขายดี (20 อันดับแรก)`}
           </h2>
         </div>
@@ -471,7 +469,7 @@ const SalesReport = () => {
             <div className="h-full flex items-center justify-center">
               <p className="text-gray-500">
                 {reportType === 'single-product' && !selectedProduct ? 'กรุณาเลือกสินค้า' :
-                 reportType === 'category' && !selectedCategory ? 'กรุณาเลือกหมวดหมู่' :
+                 reportType === 'category' && !selectedCategoryId ? 'กรุณาเลือกหมวดหมู่' :
                  reportType === 'best-sellers' && products.length === 0 ? 'กำลังโหลดข้อมูลสินค้า...' :
                  reportType === 'best-sellers' && sales.length === 0 ? 'ยังไม่มีข้อมูลการขาย' :
                  'ไม่มีข้อมูลสำหรับช่วงเวลาที่เลือก'}

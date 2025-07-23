@@ -10,13 +10,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertTriangle, Package, TrendingUp, Search, ShoppingCart, FileText, Trash } from 'lucide-react';
 import PurchaseOrderDialog from '../components/inventory/PurchaseOrderDialog';
 import { purchaseOrderAPI } from '../services/api/purchaseOrderAPI';
+import { Category } from '@/services/api';
 
 const StockAlerts = () => {
-  const { products, fetchProducts } = useStore();
+  const { products, categories, fetchProducts } = useStore();
   const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
   const [outOfStockProducts, setOutOfStockProducts] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategoryId, setSelectedCategoryId] = useState('all');
   const [filteredLowStockProducts, setFilteredLowStockProducts] = useState<any[]>([]);
   const [sortBy, setSortBy] = useState('stock');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -81,9 +82,6 @@ const StockAlerts = () => {
     setAllStockProducts(combined);
   }, [products]);
 
-  // Get unique categories from all stock products
-  const categories = ['all', ...new Set(allStockProducts.map(product => product.category).filter(Boolean))];
-
   // Filter and sort all stock products
   useEffect(() => {
     let filtered = [...allStockProducts];
@@ -96,8 +94,8 @@ const StockAlerts = () => {
     }
     
     // Filter by category
-    if (selectedCategory !== 'all') {
-      filtered = filtered.filter(product => product.category === selectedCategory);
+    if (selectedCategoryId !== 'all') {
+      filtered = filtered.filter(product => String(product.categoryId) === selectedCategoryId);
     }
     
     // Filter by search query
@@ -107,7 +105,7 @@ const StockAlerts = () => {
         product.name.toLowerCase().includes(query) ||
         (product.productCode && product.productCode.toLowerCase().includes(query)) ||
         (product.barcode && product.barcode.toLowerCase().includes(query)) ||
-        (product.category && product.category.toLowerCase().includes(query))
+        (product.categoryName && product.categoryName.toLowerCase().includes(query))
       );
     }
     
@@ -137,8 +135,8 @@ const StockAlerts = () => {
           bValue = b.price;
           break;
         case 'category':
-          aValue = (a.category || '').toLowerCase();
-          bValue = (b.category || '').toLowerCase();
+          aValue = (a.categoryName || '').toLowerCase();
+          bValue = (b.categoryName || '').toLowerCase();
           break;
         case 'totalPrice':
           aValue = calculateTotalPrice(a);
@@ -157,7 +155,7 @@ const StockAlerts = () => {
     });
     
     setFilteredLowStockProducts(filtered);
-  }, [allStockProducts, stockTypeFilter, selectedCategory, searchQuery, sortBy, sortOrder]);
+  }, [allStockProducts, stockTypeFilter, selectedCategoryId, searchQuery, sortBy, sortOrder]);
 
   const calculateRecommendedOrder = (product: any) => {
     if (!product.maxStock || product.maxStock <= 0) {
@@ -334,14 +332,15 @@ const StockAlerts = () => {
                 </Select>
               </div>
               <div className="w-full md:w-1/4">
-                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
                   <SelectTrigger>
                     <SelectValue placeholder="เลือกหมวดหมู่" />
                   </SelectTrigger>
                   <SelectContent>
-                    {categories.map((category) => (
-                      <SelectItem key={category} value={category}>
-                        {category === 'all' ? 'ทุกหมวดหมู่' : category}
+                    <SelectItem value="all">ทุกหมวดหมู่</SelectItem>
+                    {categories.map((category: Category) => (
+                      <SelectItem key={category.id} value={String(category.id)}>
+                        {category.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -358,11 +357,11 @@ const StockAlerts = () => {
                     autoComplete="off"
                   />
                 </div>
-                {(selectedCategory !== 'all' || searchQuery || stockTypeFilter !== 'all') && (
+                {(selectedCategoryId !== 'all' || searchQuery || stockTypeFilter !== 'all') && (
                   <Button 
                     variant="ghost" 
                     onClick={() => {
-                      setSelectedCategory('all');
+                      setSelectedCategoryId('all');
                       setSearchQuery('');
                       setStockTypeFilter('all');
                     }}
@@ -453,7 +452,7 @@ const StockAlerts = () => {
                         <TableCell className="font-medium">{product.name}</TableCell>
                         <TableCell className="text-sm text-gray-600">{product.productCode || '-'}</TableCell>
                         <TableCell className="text-sm text-gray-600">{product.lotCode || '-'}</TableCell>
-                        <TableCell className="text-sm text-gray-600">{product.category || '-'}</TableCell>
+                        <TableCell className="text-sm text-gray-600">{product.categoryName || '-'}</TableCell>
                         <TableCell>
                           <span className="font-medium text-orange-600">{product.stock}</span>
                         </TableCell>
@@ -499,8 +498,8 @@ const StockAlerts = () => {
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center py-6">
-                        {searchQuery || selectedCategory !== 'all' || stockTypeFilter !== 'all' 
+                      <TableCell colSpan={13} className="text-center py-6">
+                        {searchQuery || selectedCategoryId !== 'all' || stockTypeFilter !== 'all' 
                           ? 'ไม่พบสินค้าที่ตรงกับเงื่อนไขการค้นหา' 
                           : 'ไม่มีสินค้าสต็อกต่ำหรือหมดสต็อก'
                         }

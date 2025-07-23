@@ -24,6 +24,7 @@ const StorageLocationSettings = () => {
   const [deleteId, setDeleteId] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [codeError, setCodeError] = useState('');
   const auth = useContext(AuthContext);
 
   useEffect(() => {
@@ -54,6 +55,7 @@ const StorageLocationSettings = () => {
       storageCode: getNextStorageCode()
     });
     setEditingId('');
+    setCodeError('');
     setDialogOpen(true);
   };
 
@@ -63,6 +65,7 @@ const StorageLocationSettings = () => {
       setInfo(storage);
       setEditingId(id);
       setDialogOpen(true);
+      setCodeError('');
     }
   };
 
@@ -77,17 +80,34 @@ const StorageLocationSettings = () => {
       toast.error('กรุณากรอกชื่อสถานที่เก็บ');
       return;
     }
-    if (editingId) {
-      // update
-      await storageLocationAPI.update(editingId, info);
+    // ตรวจสอบรหัสซ้ำ (ยกเว้นกรณีแก้ไขและ id เดิม)
+    const code = info.storageCode.trim();
+    const isDuplicate = storageList.some(w => (w.storageCode || w.storagecode) === code && w.id !== editingId);
+    if (isDuplicate) {
+      setCodeError('รหัสสถานที่เก็บนี้ถูกใช้ไปแล้ว');
+      toast.error('รหัสสถานที่เก็บนี้ถูกใช้ไปแล้ว');
+      return;
     } else {
-      // create
-      await storageLocationAPI.create(info);
+      setCodeError('');
     }
-    // reload from API
-    const res = await storageLocationAPI.getAll();
-    setStorageList(res.success && Array.isArray(res.data) ? res.data : []);
-    setDialogOpen(false);
+    try {
+      if (editingId) {
+        await storageLocationAPI.update(editingId, info);
+      } else {
+        await storageLocationAPI.create(info);
+      }
+      // reload from API
+      const res = await storageLocationAPI.getAll();
+      setStorageList(res.success && Array.isArray(res.data) ? res.data : []);
+      setDialogOpen(false);
+    } catch (err: any) {
+      if (err?.response?.status === 409) {
+        setCodeError('รหัสสถานที่เก็บนี้ถูกใช้ไปแล้ว');
+        toast.error('รหัสสถานที่เก็บนี้ถูกใช้ไปแล้ว');
+      } else {
+        toast.error('เกิดข้อผิดพลาดในการบันทึก');
+      }
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -150,25 +170,28 @@ const StorageLocationSettings = () => {
                   </td>
                 </tr>
               ) : (
-                storageList.map(item => (
-                  <tr key={item.id}>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.storageCode}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{item.name}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.description}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <Button size="sm" variant="outline" onClick={() => handleEdit(item.id)} className="text-xs">แก้ไข</Button>
-                        <Button size="sm" variant="destructive" onClick={() => handleDelete(item.id)} className="text-xs">ลบ</Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                storageList
+                  .slice()
+                  .sort((a, b) => (a.storageCode || a.storagecode).localeCompare(b.storageCode || b.storagecode))
+                  .map(item => (
+                    <tr key={item.id}>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{item.storageCode}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{item.name}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{item.description}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <Button size="sm" variant="outline" onClick={() => handleEdit(item.id)} className="text-xs">แก้ไข</Button>
+                          <Button size="sm" variant="destructive" onClick={() => handleDelete(item.id)} className="text-xs">ลบ</Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
               )}
             </tbody>
           </table>
@@ -182,7 +205,8 @@ const StorageLocationSettings = () => {
           <div className="space-y-4 mt-2">
             <div>
               <label className="block text-sm font-medium mb-1">รหัสสถานที่เก็บ</label>
-              <Input name="storageCode" value={info.storageCode} readOnly disabled className="bg-gray-100" />
+              <Input name="storageCode" value={info.storageCode} onChange={e => setInfo({ ...info, storageCode: e.target.value })} placeholder="รหัสสถานที่เก็บ" />
+              {codeError && <div className="text-red-500 text-xs mt-1">{codeError}</div>}
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">ชื่อสถานที่เก็บ</label>

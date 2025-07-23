@@ -179,37 +179,40 @@ const SellerInfo = () => {
                   </td>
                 </tr>
               ) : (
-                sellerList.map(item => (
-                  <tr key={item.id}>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.shopCode || item.shopcode}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{item.name}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.phone}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.bankName || item.bankname}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.bankAccount || item.bankaccount}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.address}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{item.taxId || item.taxid}</div>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <Button size="sm" variant="outline" onClick={() => handleEdit(item.id)} className="text-xs">แก้ไข</Button>
-                        <Button size="sm" variant="destructive" onClick={() => handleDelete(item.id)} className="text-xs">ลบ</Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                sellerList
+                  .slice()
+                  .sort((a, b) => (a.shopCode || a.shopcode).localeCompare(b.shopCode || b.shopcode))
+                  .map(item => (
+                    <tr key={item.id}>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{item.shopCode || item.shopcode}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{item.name}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{item.phone}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{item.bankName || item.bankname}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{item.bankAccount || item.bankaccount}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{item.address}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{item.taxId || item.taxid}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <Button size="sm" variant="outline" onClick={() => handleEdit(item.id)} className="text-xs">แก้ไข</Button>
+                          <Button size="sm" variant="destructive" onClick={() => handleDelete(item.id)} className="text-xs">ลบ</Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
               )}
             </tbody>
           </table>

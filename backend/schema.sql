@@ -18,44 +18,45 @@ CREATE TABLE users (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE products (
+CREATE TABLE categories (
     id SERIAL PRIMARY KEY,
-    productCode VARCHAR(50),
+    name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    productCode VARCHAR(50) UNIQUE,
     lotCode VARCHAR(50),
-    barcode VARCHAR(100),
-    name VARCHAR(200) NOT NULL,
-    price DECIMAL(10,2) NOT NULL,
-    stock INTEGER DEFAULT 0,
-    category VARCHAR(100),
-    sellerId VARCHAR(50),
-    seller VARCHAR(100),
-    warehouseId VARCHAR(50),
-    warehouseName VARCHAR(100),
-    storageLocationId VARCHAR(50),
-    storageLocationName VARCHAR(100),
+    barcode VARCHAR(255),
+    qrcode VARCHAR(255),
+    name VARCHAR(255) NOT NULL,
+    price NUMERIC(10, 2) NOT NULL,
+    stock INTEGER NOT NULL,
+    category_id INTEGER REFERENCES categories(id),
+    active BOOLEAN DEFAULT TRUE,
+    sellerId INTEGER REFERENCES sellers(id),
     productionDate DATE,
     expiryDate DATE,
-    paymentMethods JSONB,
+    paymentMethods JSONB, -- { cash: true, check: false, credit: true }
     creditDays INTEGER,
     dueDate DATE,
-    active BOOLEAN DEFAULT true,
-    minStock INTEGER DEFAULT 0,
-    maxStock INTEGER DEFAULT 0,
+    minStock INTEGER,
+    maxStock INTEGER,
+    warehouseId INTEGER REFERENCES warehouses(id),
+    storageLocationId INTEGER REFERENCES storage_locations(id),
     created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    UNIQUE(productCode, lotCode)
 );
 
 CREATE TABLE sellers (
     id SERIAL PRIMARY KEY,
-    shopCode VARCHAR(50) UNIQUE NOT NULL,
-    name VARCHAR(200) NOT NULL,
+    name VARCHAR(255) NOT NULL,
     address TEXT,
     phone VARCHAR(20),
-    taxId VARCHAR(20),
-    bankAccount VARCHAR(20),
-    bankName VARCHAR(100),
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    email VARCHAR(255),
+    tax_id VARCHAR(20)
 );
 
 CREATE TABLE warehouses (
@@ -94,7 +95,7 @@ CREATE TABLE purchase_orders (
 );
 
 CREATE TABLE sales (
-    id VARCHAR(50) PRIMARY KEY,
+    id VARCHAR(255) PRIMARY KEY,
     items JSONB NOT NULL,
     total DECIMAL(10,2) NOT NULL,
     paymentMethod VARCHAR(20) NOT NULL,

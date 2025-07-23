@@ -22,7 +22,17 @@ app.get('/api/test', (req, res) => {
 // Products endpoints
 app.get('/api/products', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM products ORDER BY created_at DESC');
+    const result = await pool.query(`
+      SELECT p.*, c.id as category_id, c.name as category_name 
+      FROM products p 
+      LEFT JOIN categories c ON p.category_id = c.id 
+      ORDER BY p.created_at DESC
+    `);
+    if (result.rows.length > 0) {
+      console.log('DEBUG PRODUCTS SQL RESULT:', result.rows[0]);
+    } else {
+      console.log('DEBUG PRODUCTS SQL RESULT: No products found');
+    }
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error(err);
@@ -31,25 +41,31 @@ app.get('/api/products', async (req, res) => {
 });
 
 app.post('/api/products', async (req, res) => {
-  const { 
-    productCode, lotCode, barcode, name, price, stock, category,
-    sellerId, seller, warehouseId, warehouseName, storageLocationId, storageLocationName,
+  let {
+    productCode, lotCode, barcode, name, price, stock, categoryId,
+    sellerId, warehouseId, storageLocationId,
     productionDate, expiryDate, paymentMethods, creditDays, dueDate,
     active, minStock, maxStock
   } = req.body;
-  
+
+  // แปลง string ว่างเป็น null และ string เป็น int
+  categoryId = categoryId ? parseInt(categoryId) : null;
+  sellerId = sellerId ? parseInt(sellerId) : null;
+  warehouseId = warehouseId ? parseInt(warehouseId) : null;
+  storageLocationId = storageLocationId ? parseInt(storageLocationId) : null;
+
   try {
     const result = await pool.query(
       `INSERT INTO products (
-        productCode, lotCode, barcode, name, price, stock, category,
-        sellerId, seller, warehouseId, warehouseName, storageLocationId, storageLocationName,
+        productCode, lotCode, barcode, name, price, stock, category_id,
+        sellerId, warehouseId, storageLocationId,
         productionDate, expiryDate, paymentMethods, creditDays, dueDate,
         active, minStock, maxStock, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW()) 
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
       RETURNING *`,
       [
-        productCode, lotCode, barcode, name, price, stock || 0, category,
-        sellerId, seller, warehouseId, warehouseName, storageLocationId, storageLocationName,
+        productCode, lotCode, barcode, name, price, stock || 0, categoryId,
+        sellerId, warehouseId, storageLocationId,
         productionDate, expiryDate, JSON.stringify(paymentMethods), creditDays, dueDate,
         active !== false, minStock || 0, maxStock || 0
       ]
@@ -64,22 +80,25 @@ app.post('/api/products', async (req, res) => {
 app.put('/api/products/:id', async (req, res) => {
   const { id } = req.params;
   const { 
-    productCode, lotCode, barcode, name, price, stock, category,
+    productCode, lotCode, barcode, name, price, stock, categoryId,
     sellerId, seller, warehouseId, warehouseName, storageLocationId, storageLocationName,
     productionDate, expiryDate, paymentMethods, creditDays, dueDate,
     active, minStock, maxStock
   } = req.body;
   
+  // แปลง string ว่างเป็น null และ string เป็น int
+  const category_id = categoryId ? parseInt(categoryId) : null;
+  
   try {
     const result = await pool.query(
       `UPDATE products SET 
-        productCode = $1, lotCode = $2, barcode = $3, name = $4, price = $5, stock = $6, category = $7,
+        productCode = $1, lotCode = $2, barcode = $3, name = $4, price = $5, stock = $6, category_id = $7,
         sellerId = $8, seller = $9, warehouseId = $10, warehouseName = $11, storageLocationId = $12, storageLocationName = $13,
         productionDate = $14, expiryDate = $15, paymentMethods = $16, creditDays = $17, dueDate = $18,
         active = $19, minStock = $20, maxStock = $21, updated_at = NOW()
       WHERE id = $22 RETURNING *`,
       [
-        productCode, lotCode, barcode, name, price, stock || 0, category,
+        productCode, lotCode, barcode, name, price, stock || 0, category_id,
         sellerId, seller, warehouseId, warehouseName, storageLocationId, storageLocationName,
         productionDate, expiryDate, JSON.stringify(paymentMethods), creditDays, dueDate,
         active !== false, minStock || 0, maxStock || 0, id
@@ -101,14 +120,19 @@ app.put('/api/products/:id', async (req, res) => {
 app.patch('/api/products/:id', async (req, res) => {
   const { id } = req.params;
   const fields = req.body;
-  const allowed = ['name', 'price', 'stock', 'active', 'category', 'sellerId', 'seller', 'warehouseId', 'warehouseName', 'storageLocationId', 'storageLocationName', 'productCode', 'lotCode', 'productionDate', 'expiryDate', 'paymentMethods', 'creditDays', 'dueDate', 'minStock', 'maxStock'];
+  const allowed = ['name', 'price', 'stock', 'active', 'categoryId', 'sellerId', 'seller', 'warehouseId', 'warehouseName', 'storageLocationId', 'storageLocationName', 'productCode', 'lotCode', 'productionDate', 'expiryDate', 'paymentMethods', 'creditDays', 'dueDate', 'minStock', 'maxStock'];
   const set = [];
   const values = [];
   let idx = 1;
   for (const key of allowed) {
     if (fields[key] !== undefined) {
-      set.push(`${key} = $${idx}`);
-      values.push(key === 'paymentMethods' ? JSON.stringify(fields[key]) : fields[key]);
+      if (key === 'categoryId') {
+        set.push(`category_id = $${idx}`);
+        values.push(fields[key] ? parseInt(fields[key]) : null);
+      } else {
+        set.push(`${key} = $${idx}`);
+        values.push(key === 'paymentMethods' ? JSON.stringify(fields[key]) : fields[key]);
+      }
       idx++;
     }
   }
@@ -370,131 +394,150 @@ app.delete('/api/sellers/:id', async (req, res) => {
 // Warehouses endpoints
 app.get('/api/warehouses', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM warehouses ORDER BY created_at DESC');
+    const result = await pool.query('SELECT * FROM warehouses ORDER BY name');
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, error: err.message });
-  }
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
+    }
 });
 
+// POST a new warehouse
 app.post('/api/warehouses', async (req, res) => {
   const { warehouseCode, name, description } = req.body;
   try {
+    if (!warehouseCode || !name) {
+      return res.status(400).json({ success: false, error: 'warehouseCode and name are required' });
+    }
     const result = await pool.query(
-      'INSERT INTO warehouses (warehouseCode, name, description, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
+      'INSERT INTO warehouses (warehouseCode, name, description, created_at, updated_at) VALUES ($1, $2, $3, NOW(), NOW()) RETURNING *',
       [warehouseCode, name, description]
     );
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {
     console.error(err);
+    if (err.code === '23505') { // unique violation
+      return res.status(409).json({ success: false, error: 'Warehouse code already exists' });
+    }
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// PUT /api/warehouses/:id - update warehouse
 app.put('/api/warehouses/:id', async (req, res) => {
   const { id } = req.params;
   const { warehouseCode, name, description } = req.body;
   try {
+    if (!warehouseCode || !name) {
+      return res.status(400).json({ success: false, error: 'warehouseCode and name are required' });
+    }
     const result = await pool.query(
       'UPDATE warehouses SET warehouseCode = $1, name = $2, description = $3, updated_at = NOW() WHERE id = $4 RETURNING *',
       [warehouseCode, name, description, id]
     );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Warehouse not found' });
-    }
-    
-    res.json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.delete('/api/warehouses/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query('DELETE FROM warehouses WHERE id = $1 RETURNING *', [id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Warehouse not found' });
     }
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
     console.error(err);
+    if (err.code === '23505') { // unique violation
+      return res.status(409).json({ success: false, error: 'Warehouse code already exists' });
+    }
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Storage Locations endpoints
-app.get('/api/storage-locations', async (req, res) => {
+// Categories API
+// GET all categories
+app.get('/api/categories', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM storage_locations ORDER BY created_at DESC');
+    const result = await pool.query('SELECT * FROM categories ORDER BY id');
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 });
 
-app.post('/api/storage-locations', async (req, res) => {
-  const { storageCode, name, description } = req.body;
+// POST a new category
+app.post('/api/categories', async (req, res) => {
   try {
-    const result = await pool.query(
-      'INSERT INTO storage_locations (storageCode, name, description, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
-      [storageCode, name, description]
-    );
-    res.status(201).json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.put('/api/storage-locations/:id', async (req, res) => {
-  const { id } = req.params;
-  const { storageCode, name, description } = req.body;
-  try {
-    const result = await pool.query(
-      'UPDATE storage_locations SET storageCode = $1, name = $2, description = $3, updated_at = NOW() WHERE id = $4 RETURNING *',
-      [storageCode, name, description, id]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Storage location not found' });
+    const { name, description } = req.body;
+    if (!name) {
+      return res.status(400).json({ success: false, error: 'Category name is required' });
     }
-    
-    res.json({ success: true, data: result.rows[0] });
+    const newCategory = await pool.query(
+      'INSERT INTO categories (name, description) VALUES ($1, $2) RETURNING *',
+      [name, description]
+    );
+    res.status(201).json({ success: true, data: newCategory.rows[0] });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.delete('/api/storage-locations/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query('DELETE FROM storage_locations WHERE id = $1 RETURNING *', [id]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Storage location not found' });
+    if (err.code === '23505') { // Unique violation
+      return res.status(409).json({ success: false, error: 'Category name already exists' });
     }
-    res.json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 });
 
-// Purchase Orders endpoints
-app.get('/api/purchase-orders', async (req, res) => {
+// PUT to update a category
+app.put('/api/categories/:id', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM purchase_orders ORDER BY created_at DESC');
-    res.json({ success: true, data: result.rows });
+  const { id } = req.params;
+    const { name, description } = req.body;
+    if (!name) {
+      return res.status(400).json({ success: false, error: 'Category name is required' });
+    }
+    const updatedCategory = await pool.query(
+      'UPDATE categories SET name = $1, description = $2, created_at = NOW() WHERE id = $3 RETURNING *',
+      [name, description, id]
+    );
+    if (updatedCategory.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Category not found' });
+    }
+    res.json({ success: true, data: updatedCategory.rows[0] });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, error: err.message });
+    if (err.code === '23505') {
+      return res.status(409).json({ success: false, error: 'Category name already exists' });
+    }
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 });
+
+// DELETE a category
+app.delete('/api/categories/:id', async (req, res) => {
+  try {
+  const { id } = req.params;
+    const deleteOp = await pool.query('DELETE FROM categories WHERE id = $1', [id]);
+    if (deleteOp.rowCount === 0) {
+      return res.status(404).json({ success: false, error: 'Category not found' });
+    }
+    res.status(204).send(); // No Content
+  } catch (err) {
+    console.error(err);
+    // Handle case where category is still in use by products
+    if (err.code === '23503') { // Foreign key violation
+      return res.status(400).json({ success: false, error: 'Cannot delete category, it is still in use by some products.' });
+    }
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+
+// Products API
+// GET all products with details
+// ลบโค้ดนี้ออก
+// app.get('/api/products', async (req, res) => {
+//   try {
+//     const result = await pool.query('SELECT * FROM products ORDER BY created_at DESC');
+//     res.json({ success: true, data: result.rows });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ success: false, error: err.message });
+//   }
+// });
 
 // เพิ่มฟังก์ชัน generatePurchaseOrderId ก่อน route purchase-orders
 async function generatePurchaseOrderId() {
@@ -586,6 +629,17 @@ app.delete('/api/purchase-orders/:id', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Purchase order not found' });
     }
     res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET all purchase orders
+app.get('/api/purchase-orders', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM purchase_orders ORDER BY created_at DESC');
+    res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, error: err.message });
@@ -773,6 +827,63 @@ app.post('/api/verify-admin-password', async (req, res) => {
       res.json({ success: false });
     }
   } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET all storage locations
+app.get('/api/storage-locations', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM storage_locations ORDER BY name');
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST a new storage location
+app.post('/api/storage-locations', async (req, res) => {
+  const { storageCode, name, description } = req.body;
+  try {
+    if (!storageCode || !name) {
+      return res.status(400).json({ success: false, error: 'storageCode and name are required' });
+    }
+    const result = await pool.query(
+      'INSERT INTO storage_locations (storageCode, name, description, created_at, updated_at) VALUES ($1, $2, $3, NOW(), NOW()) RETURNING *',
+      [storageCode, name, description]
+    );
+    res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    if (err.code === '23505') { // unique violation
+      return res.status(409).json({ success: false, error: 'Storage code already exists' });
+    }
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/storage-locations/:id - update storage location
+app.put('/api/storage-locations/:id', async (req, res) => {
+  const { id } = req.params;
+  const { storageCode, name, description } = req.body;
+  try {
+    if (!storageCode || !name) {
+      return res.status(400).json({ success: false, error: 'storageCode and name are required' });
+    }
+    const result = await pool.query(
+      'UPDATE storage_locations SET storageCode = $1, name = $2, description = $3, updated_at = NOW() WHERE id = $4 RETURNING *',
+      [storageCode, name, description, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Storage location not found' });
+    }
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    if (err.code === '23505') { // unique violation
+      return res.status(409).json({ success: false, error: 'Storage code already exists' });
+    }
     res.status(500).json({ success: false, error: err.message });
   }
 });

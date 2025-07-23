@@ -189,20 +189,41 @@ export const productsAPI = {
   },
 };
 
+// Categories API
+export interface Category {
+  id: number;
+  name: string;
+  description?: string;
+  created_at: string;
+}
+
+export const categoryAPI = {
+  getAll: async (): Promise<ApiResponse<Category[]>> => {
+    return apiCall<Category[]>('/categories');
+  },
+  create: async (categoryData: Omit<Category, 'id' | 'created_at'>): Promise<ApiResponse<Category>> => {
+    return apiCall<Category>('/categories', {
+      method: 'POST',
+      body: JSON.stringify(categoryData),
+    });
+  },
+  update: async (id: number, categoryData: Partial<Omit<Category, 'id' | 'created_at'>>): Promise<ApiResponse<Category>> => {
+    return apiCall<Category>(`/categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(categoryData),
+    });
+  },
+  delete: async (id: number): Promise<ApiResponse<void>> => {
+    return apiCall<void>(`/categories/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
 // Sales API
 export const salesAPI = {
-  create: async (saleData: {
-    items: Array<{
-      id: string;
-      quantity: number;
-      price: number;
-    }>;
-    total: number;
-    paymentMethod: 'cash' | 'qrcode';
-    receivedAmount?: number;
-    changeAmount?: number;
-  }): Promise<ApiResponse<{ saleId: string }>> => {
-    return apiCall<{ saleId: string }>('/sales', {
+  create: async (saleData: any): Promise<ApiResponse<any>> => {
+    return apiCall<any>('/sales', {
       method: 'POST',
       body: JSON.stringify(saleData),
     });

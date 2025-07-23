@@ -15,16 +15,14 @@ import {
 import JsBarcode from 'jsbarcode';
 import { Printer } from 'lucide-react';
 import { toast } from 'sonner';
+import { Category } from '@/services/api';
 
 const BarcodeGenerator = () => {
-  const { products } = useStore();
+  const { products, categories } = useStore();
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategoryId, setSelectedCategoryId] = useState('all');
   const barcodesContainerRef = useRef<HTMLDivElement>(null);
-  
-  // Get unique categories
-  const categories = ['all', ...new Set(products.filter(p => p.active).map(product => product.category))];
   
   // Filter products
   const filteredProducts = products.filter(product => {
@@ -32,7 +30,7 @@ const BarcodeGenerator = () => {
     if (!product.active) return false;
     
     // Filter by category
-    if (selectedCategory !== 'all' && product.category !== selectedCategory) return false;
+    if (selectedCategoryId !== 'all' && String(product.categoryId) !== selectedCategoryId) return false;
     
     // Filter by search
     if (searchQuery) {
@@ -160,6 +158,49 @@ const BarcodeGenerator = () => {
     // Close the document to finish loading
     printWindow.document.close();
   };
+
+  // เพิ่มฟังก์ชันสำหรับพิมพ์ QR Codes หลายตัว
+  const printQRCodes = () => {
+    if (selectedProducts.length === 0) {
+      toast.error('กรุณาเลือกสินค้าอย่างน้อย 1 รายการ');
+      return;
+    }
+    const selectedProductsData = selectedProducts.map(id => products.find(p => p.id === id)).filter(Boolean);
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('ไม่สามารถเปิดหน้าต่างพิมพ์ได้ กรุณาอนุญาตให้เปิดป๊อปอัพในเบราว์เซอร์');
+      return;
+    }
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>พิมพ์ QR Code - Grocery Guru</title>
+          <style>
+            body { font-family: 'TH Sarabun New', 'Sarabun', sans-serif; padding: 10mm; }
+            .qr-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10mm; page-break-inside: avoid; }
+            .qr-item { border: 1px dashed #ccc; padding: 5mm; text-align: center; display: flex; flex-direction: column; align-items: center; }
+            .qr-label { font-size: 14px; margin-bottom: 3mm; font-weight: bold; }
+            .qr-price { font-size: 14px; margin: 2mm 0; }
+            @media print { @page { size: A4; margin: 10mm; } .qr-item { border: 1px dashed #ccc; break-inside: avoid; } }
+          </style>
+        </head>
+        <body>
+          <div class="qr-grid">
+            ${selectedProductsData.map(product => `
+              <div class="qr-item">
+                <div class="qr-label">${product?.name}</div>
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(product?.barcode || '')}" width="120" height="120" />
+                <div class="qr-price">฿${product?.price?.toFixed(2) || '0.00'}</div>
+                <div style="font-size:12px;">รหัส: ${product?.barcode || ''}</div>
+              </div>
+            `).join('')}
+          </div>
+          <script>window.onload = function() { window.print(); };</script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
   
   return (
     <div className="container mx-auto p-6">
@@ -182,6 +223,15 @@ const BarcodeGenerator = () => {
             <Printer className="h-4 w-4" />
             พิมพ์บาร์โค้ด ({selectedProducts.length})
           </Button>
+          <Button
+            onClick={printQRCodes}
+            disabled={selectedProducts.length === 0}
+            size="sm"
+            className="bg-green-600 hover:bg-green-700 flex items-center gap-2"
+          >
+            <Printer className="h-4 w-4" />
+            พิมพ์ QR Code ({selectedProducts.length})
+          </Button>
         </div>
       </div>
 
@@ -199,14 +249,15 @@ const BarcodeGenerator = () => {
           </div>
           <div>
             <Label htmlFor="category">หมวดหมู่</Label>
-            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+            <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {categories.map(category => (
-                  <SelectItem key={category} value={category}>
-                    {category === 'all' ? 'ทั้งหมด' : category}
+                <SelectItem value="all">ทั้งหมด</SelectItem>
+                {categories.map((category: Category) => (
+                  <SelectItem key={category.id} value={String(category.id)}>
+                    {category.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -265,7 +316,7 @@ const BarcodeGenerator = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {product.category || '-'}
+                      {product.categoryName || '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{product.barcode || '-'}</div>
@@ -274,7 +325,7 @@ const BarcodeGenerator = () => {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ฿{product.price?.toFixed(2) || '0.00'}
+                      {`฿${product.price?.toFixed(2) || '0.00'}`}
                     </td>
                   </tr>
                 ))
@@ -287,7 +338,7 @@ const BarcodeGenerator = () => {
       {/* Preview Section */}
       {selectedProducts.length > 0 && (
         <div className="mt-6 bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-4">ตัวอย่างบาร์โค้ดที่จะพิมพ์</h3>
+          <h3 className="text-lg font-semibold mb-4">ตัวอย่างบาร์โค้ดและ QR Code ที่จะพิมพ์</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {selectedProducts.slice(0, 6).map(productId => {
               const product = products.find(p => p.id === productId);
@@ -296,6 +347,7 @@ const BarcodeGenerator = () => {
               return (
                 <div key={productId} className="border border-gray-200 rounded-lg p-4 text-center">
                   <div className="text-sm font-medium mb-2">{product.name}</div>
+                  {/* Barcode Preview */}
                   {product.barcode && (
                     <div className="mb-2">
                       <svg
@@ -316,7 +368,17 @@ const BarcodeGenerator = () => {
                       />
                     </div>
                   )}
-                  <div className="text-sm text-gray-600">฿{product.price?.toFixed(2) || '0.00'}</div>
+                  {/* QR Code Preview */}
+                  {product.barcode ? (
+                    <div className="flex justify-center mt-2">
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(product.barcode)}`}
+                        alt="QR Code"
+                        style={{ width: 120, height: 120 }}
+                      />
+                    </div>
+                  ) : null}
+                  <div className="text-sm text-gray-600 mt-2">฿{product.price?.toFixed(2) || '0.00'}</div>
                 </div>
               );
             })}

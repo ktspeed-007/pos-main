@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { sellerAPI } from '@/services/api/sellerAPI';
 import { warehouseAPI } from '@/services/api/warehouseAPI';
 import { storageLocationAPI } from '@/services/api/storageLocationAPI';
+import { categoryAPI, Category } from '@/services/api';
 
 type ProductFormProps = {
   product?: any;
@@ -39,7 +40,7 @@ function mapStorageLocationResponse(item: any) {
 }
 
 const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => {
-  const { addProduct, updateProduct, products } = useStore();
+  const { addProduct, updateProduct, products, categories, fetchCategories } = useStore();
   
   // Debug log
   console.log('ProductForm: product', product);
@@ -53,7 +54,9 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
   const [mastersLoaded, setMastersLoaded] = useState(false);
   
   useEffect(() => {
+    // เรียก fetchCategories ที่นี่ด้วยเพื่อให้แน่ใจว่าข้อมูลหมวดหมู่ล่าสุด
     Promise.all([
+      fetchCategories(),
       sellerAPI.getAll().then(res => {
         if (res.success && Array.isArray(res.data)) setSellers(res.data.map(mapSellerResponse));
         else setSellers([]);
@@ -76,7 +79,7 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
     name: product?.name || '',
     price: product?.price ?? '',
     stock: product?.stock ?? '',
-    category: product?.category || '',
+    categoryId: product?.categoryId ? String(product.categoryId) : '',
     sellerId: product?.sellerId || '',
     warehouseId: product?.warehouseId || '',
     warehouseName: product?.warehouseName || '',
@@ -103,7 +106,7 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
     name: '',
     price: '',
     stock: '',
-    category: '',
+    categoryId: '',
     sellerId: '',
   });
   
@@ -121,7 +124,7 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
       name: product?.name || '',
       price: product?.price ?? '',
       stock: product?.stock ?? '',
-      category: product?.category || '',
+      categoryId: (product?.categoryId ?? product?.category_id) ? String(product?.categoryId ?? product?.category_id) : '',
       sellerId: product?.sellerId ? String(product.sellerId) : '',
       warehouseId: product?.warehouseId ? String(product.warehouseId) : '',
       warehouseName: product?.warehouseName || '',
@@ -209,7 +212,7 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
       name: '',
       price: '',
       stock: '',
-      category: '',
+      categoryId: '',
       sellerId: '',
     };
     
@@ -250,8 +253,8 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
       isValid = false;
     }
     
-    if (!formData.category.trim()) {
-      newErrors.category = 'กรุณาระบุหมวดหมู่';
+    if (!formData.categoryId) {
+      newErrors.categoryId = 'กรุณาเลือกหมวดหมู่';
       isValid = false;
     }
     
@@ -299,11 +302,15 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
     };
     
     if (!product?.id) {
-      addProduct(productData);
+      addProduct({
+        ...productData,
+        categoryId: productData.categoryId ? parseInt(productData.categoryId) : null,
+      });
     } else {
       updateProduct({
         ...product,
         ...productData,
+        categoryId: productData.categoryId ? parseInt(productData.categoryId) : null,
       });
     }
     
@@ -447,14 +454,23 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
         <Label className="block text-sm font-medium text-gray-700 mb-1">
           หมวดหมู่ *
         </Label>
-        <Input
-          type="text"
-          name="category"
-          value={formData.category}
-          onChange={handleChange}
-          className={`w-full ${errors.category ? 'border-red-500' : 'border-gray-300'}`}
-        />
-        {errors.category && <p className="text-red-500 text-xs mt-1">{errors.category}</p>}
+        <Select value={formData.categoryId || ''} onValueChange={(value) => setFormData({...formData, categoryId: value})}>
+          <SelectTrigger className={`w-full ${errors.categoryId ? 'border-red-500' : 'border-gray-300'}`}>
+            <SelectValue placeholder="เลือกหมวดหมู่" />
+          </SelectTrigger>
+          <SelectContent>
+            {categories.length > 0 ? (
+              categories.map((cat: Category) => (
+                <SelectItem key={cat.id} value={String(cat.id)}>
+                  {cat.name}
+                </SelectItem>
+              ))
+            ) : (
+              <SelectItem value="none" disabled>ไม่มีข้อมูลหมวดหมู่</SelectItem>
+            )}
+          </SelectContent>
+        </Select>
+        {errors.categoryId && <p className="text-red-500 text-xs mt-1">{errors.categoryId}</p>}
       </div>
       
       <div>
