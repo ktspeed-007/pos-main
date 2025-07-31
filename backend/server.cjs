@@ -562,64 +562,6 @@ async function generatePurchaseOrderId() {
   return `${prefix}-${seqStr}`;
 }
 
-app.post('/api/purchase-orders', async (req, res) => {
-  let { 
-    id, items, total, status, sellerId, sellerName, createdBy, 
-    expectedDeliveryDate, notes, paymentMethod, creditDays, dueDate 
-  } = req.body;
-  try {
-    // ถ้าไม่ได้ส่ง id ให้ generate id ใหม่
-    if (!id) {
-      id = await generatePurchaseOrderId();
-    }
-    if (!createdBy) {
-      createdBy = 'unknown';
-    }
-    const result = await pool.query(
-      `INSERT INTO purchase_orders (
-        id, items, total, status, sellerId, sellerName, createdby, 
-        expectedDeliveryDate, notes, paymentMethod, creditDays, dueDate, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()) RETURNING *`,
-      [
-        id, JSON.stringify(items), total, status, sellerId, sellerName, createdBy,
-        expectedDeliveryDate, notes, paymentMethod, creditDays, dueDate
-      ]
-    );
-    res.status(201).json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.put('/api/purchase-orders/:id', async (req, res) => {
-  const { id } = req.params;
-  const { 
-    items, total, status, sellerId, sellerName, createdBy, 
-    expectedDeliveryDate, notes, paymentMethod, creditDays, dueDate 
-  } = req.body;
-  try {
-    const result = await pool.query(
-      `UPDATE purchase_orders SET 
-        items = $1, total = $2, status = $3, sellerId = $4, sellerName = $5, createdby = $6,
-        expectedDeliveryDate = $7, notes = $8, paymentMethod = $9, creditDays = $10, dueDate = $11, updated_at = NOW()
-      WHERE id = $12 RETURNING *`,
-      [
-        JSON.stringify(items), total, status, sellerId, sellerName, createdBy,
-        expectedDeliveryDate, notes, paymentMethod, creditDays, dueDate, id
-      ]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Purchase order not found' });
-    }
-    
-    res.json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
 
 app.delete('/api/purchase-orders/:id', async (req, res) => {
   const { id } = req.params;
@@ -635,16 +577,289 @@ app.delete('/api/purchase-orders/:id', async (req, res) => {
   }
 });
 
-// GET all purchase orders
+// GET all purchase orders (แนบ items)
 app.get('/api/purchase-orders', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM purchase_orders ORDER BY created_at DESC');
-    res.json({ success: true, data: result.rows });
+    const orders = result.rows;
+    // แนบ items
+    for (const order of orders) {
+      order.items = await getPurchaseOrderItems(order.id);
+    }
+    res.json({ success: true, data: orders });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// GET purchase order by id (แนบ items)
+app.get('/api/purchase-orders/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query('SELECT * FROM purchase_orders WHERE id = $1', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Purchase order not found' });
+    }
+    const order = result.rows[0];
+    order.items = await getPurchaseOrderItems(order.id);
+    res.json({ success: true, data: order });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST create purchase order (batch create items)
+app.post('/api/purchase-orders', async (req, res) => {
+  console.log('=== BACKEND CREATE PO ===');
+  console.log('DEBUG: req.body:', req.body);
+  let { id, items, total, status, sellerId, sellerName, createdBy, expectedDeliveryDate, notes, paymentMethod, creditDays, dueDate } = req.body;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // generate id if not provided
+    if (!id) {
+      id = await generatePurchaseOrderId();
+    }
+    if (!createdBy) {
+      createdBy = 'unknown';
+    }
+    // DEBUG: log items ที่รับเข้ามา
+    console.log('DEBUG: items payload:', items);
+    // สร้าง purchase_orders
+    const result = await client.query(
+      `INSERT INTO purchase_orders (
+        id, items, total, status, sellerid, sellername, createdby, expecteddeliverydate, notes, paymentmethod, creditdays, duedate, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()) RETURNING *`,
+      [id, JSON.stringify(items), total, status, sellerId, sellerName, createdBy, expectedDeliveryDate, notes, paymentMethod, creditDays, dueDate]
+    );
+    console.log('DEBUG: after insert purchase_orders', result.rows[0]);
+    // batch insert purchase_order_items
+    console.log('DEBUG: items received in backend:', items);
+    if (Array.isArray(items)) {
+      console.log('DEBUG: entering for-loop for items');
+      for (const item of items) {
+        try {
+          console.log('DEBUG: insert purchase_order_item:', item);
+          await client.query(
+            `INSERT INTO purchase_order_items (purchase_order_id, product_id, qty, received_qty, lotcode, expirydate, price, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+            [id, item.product_id, item.qty, item.received_qty || 0, item.lotcode, item.expirydate, item.price]
+          );
+          console.log('SUCCESS: inserted purchase_order_item:', item);
+        } catch (err) {
+          console.error('ERROR inserting purchase_order_item:', err, item);
+          throw err;
+        }
+      }
+      console.log('DEBUG: finished for-loop for items');
+    }
+    await client.query('COMMIT');
+    console.log('COMMIT SUCCESS for PO', id);
+    // แนบ items กลับ
+    const po = result.rows[0];
+    po.items = await getPurchaseOrderItems(po.id);
+    res.status(201).json({ success: true, data: po });
+  } catch (err) {
+    console.log('DEBUG: before rollback');
+    await client.query('ROLLBACK');
+    console.log('DEBUG: after rollback');
+    console.error('ERROR in purchase order creation:', err, JSON.stringify(err, Object.getOwnPropertyNames(err)));
+    console.log('DEBUG: before return res.status(500)');
+    res.status(500).json({ success: false, error: err.message || err });
+  } finally {
+    console.log('RELEASING DB CONNECTION for PO', id);
+    client.release();
+  }
+});
+
+// PUT update purchase order (batch update items)
+app.put('/api/purchase-orders/:id', async (req, res) => {
+  const { id } = req.params;
+  const { items, total, status, sellerid, sellername, createdby, expecteddeliverydate, notes, paymentmethod, creditdays, duedate } = req.body;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // DEBUG: log items ที่รับเข้ามา
+    console.log('DEBUG: items payload (PUT):', items);
+    console.log('DEBUG: full request body (PUT):', req.body); // เพิ่ม debug log
+    console.log('DEBUG: sellerid (PUT):', sellerid); // เพิ่ม debug log
+    console.log('DEBUG: sellername (PUT):', sellername); // เพิ่ม debug log
+    console.log('DEBUG: paymentmethod (PUT):', paymentmethod); // เพิ่ม debug log
+    console.log('DEBUG: creditdays (PUT):', creditdays); // เพิ่ม debug log
+    console.log('DEBUG: duedate (PUT):', duedate); // เพิ่ม debug log
+    
+    // ตรวจสอบ column names ใน DB
+    const columnCheck = await client.query(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name = 'purchase_orders' 
+      AND column_name IN ('sellerid', 'sellername', 'paymentmethod', 'creditdays', 'duedate', 'expecteddeliverydate')
+      ORDER BY column_name
+    `);
+    console.log('DEBUG: DB columns:', columnCheck.rows);
+    
+    // สร้าง dynamic UPDATE query เฉพาะ field ที่มีค่า
+    const updateFields = [];
+    const updateValues = [];
+    let paramIndex = 1;
+    
+    // ตรวจสอบ items เฉพาะเมื่อมีการส่งมาและไม่เป็น null
+    if (items !== undefined && items !== null) {
+      updateFields.push(`items = $${paramIndex++}`);
+      updateValues.push(JSON.stringify(items));
+    }
+    if (total !== undefined) {
+      updateFields.push(`total = $${paramIndex++}`);
+      updateValues.push(total);
+    }
+    if (status !== undefined) {
+      updateFields.push(`status = $${paramIndex++}`);
+      updateValues.push(status);
+    }
+    if (sellerid !== undefined) {
+      updateFields.push(`sellerid = $${paramIndex++}`);
+      updateValues.push(sellerid);
+    }
+    if (sellername !== undefined) {
+      updateFields.push(`sellername = $${paramIndex++}`);
+      updateValues.push(sellername);
+    }
+    if (createdby !== undefined) {
+      updateFields.push(`createdby = $${paramIndex++}`);
+      updateValues.push(createdby);
+    }
+    if (expecteddeliverydate !== undefined) {
+      updateFields.push(`expecteddeliverydate = $${paramIndex++}`);
+      updateValues.push(expecteddeliverydate);
+    }
+    if (notes !== undefined) {
+      updateFields.push(`notes = $${paramIndex++}`);
+      updateValues.push(notes);
+    }
+    if (paymentmethod !== undefined) {
+      updateFields.push(`paymentmethod = $${paramIndex++}`);
+      updateValues.push(paymentmethod);
+    }
+    if (creditdays !== undefined) {
+      updateFields.push(`creditdays = $${paramIndex++}`);
+      updateValues.push(creditdays);
+    }
+    if (duedate !== undefined) {
+      updateFields.push(`duedate = $${paramIndex++}`);
+      updateValues.push(duedate);
+    }
+    
+    // เพิ่ม updated_at เสมอ
+    updateFields.push(`updated_at = NOW()`);
+    
+    if (updateFields.length === 0) {
+      return res.status(400).json({ success: false, error: 'No valid fields to update' });
+    }
+    
+    console.log('DEBUG: updateFields:', updateFields); // เพิ่ม debug log
+    console.log('DEBUG: updateValues:', updateValues); // เพิ่ม debug log
+    
+    // update purchase_orders
+    const result = await client.query(
+      `UPDATE purchase_orders SET ${updateFields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+      [...updateValues, id]
+    );
+    
+    // ลบ items เดิม แล้ว insert ใหม่ (เฉพาะเมื่อมี items)
+    if (items !== undefined && items !== null && Array.isArray(items)) {
+      await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1', [id]);
+      for (const item of items) {
+        console.log('DEBUG: insert purchase_order_item (PUT):', item);
+        await client.query(
+          `INSERT INTO purchase_order_items (purchase_order_id, product_id, qty, received_qty, lotcode, expirydate, price, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+          [id, item.product_id, item.qty, item.received_qty || 0, item.lotcode, item.expirydate, item.price]
+        );
+      }
+    }
+    
+    await client.query('COMMIT');
+    // แนบ items กลับ
+    const po = result.rows[0];
+    console.log('DEBUG: UPDATE result.rows:', result.rows); // เพิ่ม debug log
+    console.log('DEBUG: po object:', po); // เพิ่ม debug log
+    
+    if (!po) {
+      console.error('DEBUG: No PO found after UPDATE');
+      return res.status(404).json({ success: false, error: 'Purchase order not found after update' });
+    }
+    
+    po.items = await getPurchaseOrderItems(po.id);
+    console.log('DEBUG: final response po:', po); // เพิ่ม debug log
+    res.json({ success: true, data: po });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// --- Endpoint สำหรับ "รับของ" (update received_qty, received_at, และ stock) ---
+app.post('/api/purchase-order-items/receive', async (req, res) => {
+  const { item_id, received_qty, received_at } = req.body;
+  console.log('DEBUG: receive request body:', { item_id, received_qty, received_at }); // เพิ่ม debug log
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // อัปเดต received_qty, received_at ใน purchase_order_items
+    const result = await client.query(
+      `UPDATE purchase_order_items SET received_qty = $1, received_at = $2 WHERE id = $3 RETURNING *`,
+      [received_qty, received_at, item_id]
+    );
+    console.log('DEBUG: update result rows:', result.rows); // เพิ่ม debug log
+    if (result.rows.length === 0) {
+      throw new Error('Item not found');
+    }
+    const item = result.rows[0];
+    
+    // อัปเดต received_at ใน purchase_orders ด้วย
+    await client.query(
+      `UPDATE purchase_orders SET received_at = $1 WHERE id = $2`,
+      [received_at, item.purchase_order_id]
+    );
+    
+    // อัปเดต stock ใน products
+    await client.query(
+      `UPDATE products SET stock = stock + $1 WHERE id = $2`,
+      [received_qty, item.product_id]
+    );
+    await client.query('COMMIT');
+    res.json({ success: true, data: item });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// --- Migration function: migratePurchaseOrderItems ---
+// เรียกใช้ manual ผ่าน node shell หรือเพิ่ม endpoint ชั่วคราวได้
+async function migratePurchaseOrderItems() {
+  const pos = await pool.query('SELECT * FROM purchase_orders');
+  for (const po of pos.rows) {
+    if (Array.isArray(po.items)) {
+      for (const item of po.items) {
+        await pool.query(
+          `INSERT INTO purchase_order_items (purchase_order_id, product_id, qty, received_qty, lotcode, expirydate, price, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+          [po.id, item.product_id, item.qty, item.received_qty || 0, item.lotcode, item.expirydate, item.price]
+        );
+      }
+    }
+  }
+  console.log('Migration complete');
+}
 
 // Sales endpoints
 app.get('/api/sales', async (req, res) => {
@@ -888,9 +1103,102 @@ app.put('/api/storage-locations/:id', async (req, res) => {
   }
 });
 
+// --- Purchase Order Items API ---
+// GET all items or by purchase_order_id
+app.get('/api/purchase-order-items', async (req, res) => {
+  const { purchase_order_id } = req.query;
+  try {
+    let result;
+    if (purchase_order_id) {
+      result = await pool.query('SELECT * FROM purchase_order_items WHERE purchase_order_id = $1 ORDER BY id', [purchase_order_id]);
+    } else {
+      result = await pool.query('SELECT * FROM purchase_order_items ORDER BY id');
+    }
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST create item
+app.post('/api/purchase-order-items', async (req, res) => {
+  const { purchase_order_id, product_id, qty, received_qty, received_at, lotcode, expirydate, price } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO purchase_order_items (purchase_order_id, product_id, qty, received_qty, received_at, lotcode, expirydate, price, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) RETURNING *`,
+      [purchase_order_id, product_id, qty, received_qty || 0, received_at, lotcode, expirydate, price]
+    );
+    res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT update item
+app.put('/api/purchase-order-items/:id', async (req, res) => {
+  const { id } = req.params;
+  const { qty, received_qty, received_at, lotcode, expirydate, price } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE purchase_order_items SET qty = $1, received_qty = $2, received_at = $3, lotcode = $4, expirydate = $5, price = $6 WHERE id = $7 RETURNING *`,
+      [qty, received_qty, received_at, lotcode, expirydate, price, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Item not found' });
+    }
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE item
+app.delete('/api/purchase-order-items/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query('DELETE FROM purchase_order_items WHERE id = $1 RETURNING *', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Item not found' });
+    }
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/', (req, res) => {
   res.send('POS API is running!');
 });
 
 const PORT = 3001;
 app.listen(PORT, () => console.log(`API running on port ${PORT}`)); 
+
+// --- Migration endpoint (ชั่วคราว) ---
+app.post('/api/purchase-orders/migrate-items', async (req, res) => {
+  try {
+    await migratePurchaseOrderItems();
+    res.json({ success: true, message: 'Migration complete' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}); 
+
+// Utility: ดึง purchase_order_items ทั้งหมดของ PO เดียว พร้อมข้อมูลสินค้า
+async function getPurchaseOrderItems(purchase_order_id) {
+  const result = await pool.query(
+    `SELECT i.id, i.purchase_order_id, i.product_id, i.qty, i.received_qty, i.lotcode, i.expirydate, i.price, i.created_at,
+            p.name, p.productCode, p.lotCode AS productLotCode, p.barcode, p.price AS productPrice
+     FROM purchase_order_items i
+     LEFT JOIN products p ON i.product_id = p.id
+     WHERE i.purchase_order_id = $1
+     ORDER BY i.id`,
+    [purchase_order_id]
+  );
+  return result.rows;
+} 

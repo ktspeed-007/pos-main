@@ -17,6 +17,7 @@ import { storageLocationAPI } from '@/services/api/storageLocationAPI';
 import { shopInfoAPI } from '@/services/api/shopInfoAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
+import { useStore } from '../contexts/StoreContext';
 
 const statusColor = {
   draft: 'gray',
@@ -38,6 +39,7 @@ const statusLabel = {
 
 const PurchaseOrderList = () => {
   const { user, login } = useAuth();
+  const [products, setProducts] = useState<any[]>([]); // preload products list
   const [orders, setOrders] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
@@ -95,7 +97,20 @@ const PurchaseOrderList = () => {
     shopInfoAPI.get().then(res => {
       if (res.success && res.data) setShopInfo(res.data);
     });
+    // preload products list จาก backend
+    productsAPI.getAll().then(res => {
+      if (res.success && Array.isArray(res.data)) setProducts(res.data);
+      else setProducts([]);
+    });
   }, [showDialog]);
+
+  useEffect(() => {
+    if (showDialog && (editMode ? editOrder : selectedOrder)) {
+      console.log('DEBUG selectedOrder:', editMode ? editOrder : selectedOrder);
+      console.log('DEBUG items:', (editMode ? editOrder : selectedOrder)?.items);
+      console.log('DEBUG products:', products);
+    }
+  }, [showDialog, editMode, editOrder, selectedOrder, products]);
 
   const filteredOrders = orders.filter(order => {
     const q = search.toLowerCase();
@@ -118,7 +133,7 @@ const PurchaseOrderList = () => {
     }
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
-    const items = order.items || [];
+    const items = (order.items || []).map(enrichItem);
     const totalAmount = items.reduce((sum: number, item: any) => sum + (item.totalPrice || 0), 0);
     // รวมชื่อผู้ขายทั้งหมด (ไม่ซ้ำ)
     const uniqueSellers = Array.from(new Set(items.map((item: any) => item.sellerId).filter(Boolean)));
@@ -416,12 +431,15 @@ const PurchaseOrderList = () => {
   // ฟังก์ชันเปิด Dialog รับของ
   const handleOpenReceiveDialog = (order: any) => {
     setReceiveOrder(order);
+    console.log('DEBUG: order.items for receive:', order.items); // เพิ่ม debug log
     // สร้าง receiveItems จาก order.items โดยเพิ่ม receivedQuantity
+    // ใช้ id จาก purchase_order_items (ไม่ใช่ product_id)
     const items = order.items.map((item: any) => ({
       ...item,
-      receivedQuantity: item.currentQuantity, // default = จำนวนที่สั่ง
+      receivedQuantity: item.received_qty || item.currentQuantity || item.qty || 0, // ใช้ received_qty จาก DB
       receivedNotes: '',
     }));
+    console.log('DEBUG: receiveItems created:', items); // เพิ่ม debug log
     setReceiveItems(items);
     setShowReceiveDialog(true);
   };
@@ -443,17 +461,33 @@ const PurchaseOrderList = () => {
   // ฟังก์ชันบันทึกการรับของ
   const handleSaveReceive = async () => {
     try {
-      // อัปเดต order items ด้วยข้อมูลการรับของ
-      const updatedItems = receiveItems.map(item => ({
-        ...item,
-        receivedDate: new Date().toISOString(),
-        receivedBy: user?.username || 'unknown',
-        isFullyReceived: item.receivedQuantity >= item.currentQuantity,
-      }));
+      console.log('DEBUG: receiveItems before sending:', receiveItems); // เพิ่ม debug log
+      // สร้างรายการรับของสำหรับแต่ละรายการใน receiveItems
+      const receiveItemPromises = receiveItems.map(async (item) => {
+        console.log('DEBUG: sending item to receive:', { id: item.id, name: item.name, receivedQuantity: item.receivedQuantity }); // เพิ่ม debug log
+        const res = await fetch('http://localhost:3001/api/purchase-order-items/receive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            item_id: item.id, // เปลี่ยนชื่อ field ให้ตรงกับ backend
+            received_qty: item.receivedQuantity, // เปลี่ยนชื่อ field ให้ตรงกับ backend
+            received_at: new Date().toISOString(), // เพิ่มวันที่รับของ
+          }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          console.error('Error receiving item:', item.id, data.error);
+          toast.error(`เกิดข้อผิดพลาดในการรับสินค้า: ${item.name}`);
+          return null;
+        }
+        return data.data;
+      });
 
-      // ตรวจสอบสถานะการรับของ
-      const allFullyReceived = updatedItems.every(item => item.isFullyReceived);
-      const anyReceived = updatedItems.some(item => item.receivedQuantity > 0);
+      const updatedItems = await Promise.all(receiveItemPromises);
+
+      // ตรวจสอบสถานะการรับของทั้งหมด
+      const allFullyReceived = updatedItems.every(item => item.received_qty >= item.qty);
+      const anyReceived = updatedItems.some(item => item.received_qty > 0);
       
       let newStatus = receiveOrder.status;
       if (allFullyReceived) {
@@ -462,76 +496,12 @@ const PurchaseOrderList = () => {
         newStatus = 'partial_received';
       }
 
-      // อัปเดต PO ใน backend
-      const updatedOrder = {
-        ...receiveOrder,
-        items: updatedItems,
-        status: newStatus,
-        updatedAt: new Date().toISOString(),
-      };
-
-      await purchaseOrderAPI.update(receiveOrder.id, updatedOrder);
-
-      // อัปเดตสต็อกสินค้า - ดึงข้อมูลสินค้าปัจจุบันก่อน
-               // ใช้ productCode + lotCode เพื่อระบุสินค้า
-         const productIdentifiers = receiveItems
-           .filter(item => item.receivedQuantity > 0)
-           .map(item => ({
-             productCode: item.productCode,
-             lotCode: item.lotCode,
-             receivedQuantity: item.receivedQuantity,
-             name: item.name
-           }));
-
-         console.log('DEBUG: productIdentifiers:', productIdentifiers);
-
-      if (productIdentifiers.length > 0) {
-        // ดึงข้อมูลสินค้าทั้งหมดเพื่อหา matching
-        console.log('DEBUG: Fetching all products to find matching items');
-        const allProductsResult = await productsAPI.getAll();
-        const allProducts = allProductsResult.success ? allProductsResult.data : [];
-        console.log('DEBUG: All products:', allProducts);
-
-                 // สร้าง stockUpdates โดยหา matching ด้วย productCode + lotCode
-         const stockUpdates = productIdentifiers
-           .map(item => {
-             // หาสินค้าที่ตรงกับ productCode และ lotCode (ใช้ snake_case จากฐานข้อมูล)
-             const matchingProduct = allProducts.find(p => 
-               (p.productCode === item.productCode || (p as any).productcode === item.productCode) && 
-               (p.lotCode === item.lotCode || (p as any).lotcode === item.lotCode)
-             );
-            
-                         if (!matchingProduct) {
-               console.log('DEBUG: No matching product found for:', item.productCode, item.lotCode);
-               console.log('DEBUG: Available products:', allProducts.map(p => ({ id: p.id, productCode: p.productCode, lotCode: p.lotCode, productcode: (p as any).productcode, lotcode: (p as any).lotcode })));
-               return null;
-             }
-            
-            const currentStock = matchingProduct.stock || 0;
-            console.log('DEBUG: Processing item:', item.name, 'productCode:', item.productCode, 'lotCode:', item.lotCode, 'currentStock:', currentStock, 'receivedQuantity:', item.receivedQuantity);
-            
-            return {
-              id: matchingProduct.id,
-              stock: currentStock + item.receivedQuantity
-            };
-          })
-          .filter(update => update !== null); // กรอง null ออก
-
-        console.log('DEBUG: stockUpdates', stockUpdates);
-
-        if (stockUpdates.length > 0) {
-          console.log('DEBUG: Calling updateMultipleStock with:', stockUpdates);
-          const stockResult = await productsAPI.updateMultipleStock(stockUpdates);
-          console.log('DEBUG: updateMultipleStock result:', stockResult);
-          if (!stockResult.success) {
-            console.error('Error updating stock:', stockResult.error);
-            toast.error('อัปเดตสต็อกสินค้าไม่สำเร็จ');
-          } else {
-            console.log('DEBUG: Stock updated successfully');
-          }
-        } else {
-          console.log('DEBUG: No stock updates to process');
-        }
+      // อัปเดตสถานะ PO ใน backend (เฉพาะ status เท่านั้น)
+      if (newStatus !== receiveOrder.status) {
+        console.log('DEBUG: updating PO status from', receiveOrder.status, 'to', newStatus); // เพิ่ม debug log
+        await purchaseOrderAPI.update(receiveOrder.id, {
+          status: newStatus, // ส่งเฉพาะ status เท่านั้น
+        });
       }
 
       toast.success('บันทึกการรับของเรียบร้อยแล้ว');
@@ -553,6 +523,20 @@ const PurchaseOrderList = () => {
       toast.error('เกิดข้อผิดพลาดในการบันทึกการรับของ');
     }
   };
+
+  // helper: เติมข้อมูลสินค้าให้กับ item ถ้าขาด (เช่น name, productCode, price)
+  function enrichItem(item) {
+    const prod = products.find(p => String(p.id) === String(item.product_id || item.productId));
+    return {
+      ...item,
+      name: item.name || prod?.name || '-',
+      productCode: item.productCode || prod?.productCode || '-',
+      currentQuantity: item.currentQuantity ?? item.qty ?? 0,
+      currentPrice: item.currentPrice ?? item.price ?? prod?.price ?? 0,
+      totalPrice: item.totalPrice ?? ((item.currentPrice ?? item.price ?? prod?.price ?? 0) * (item.currentQuantity ?? item.qty ?? 0)),
+      lotCode: item.lotCode || prod?.lotCode || '-',
+    };
+  }
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -618,7 +602,18 @@ const PurchaseOrderList = () => {
                       </TableCell>
                       <TableCell>฿{order.totalAmount?.toFixed(2) || '-'}</TableCell>
                       <TableCell>
-                        <Button size="sm" variant="outline" onClick={() => { setSelectedOrder(order); setEditMode(false); setEditOrder(null); setShowDialog(true); }}>
+                        <Button size="sm" variant="outline" onClick={async () => {
+                          // ดึงข้อมูล PO รายตัวจาก API เพื่อให้แน่ใจว่า items ครบ
+                          const res = await purchaseOrderAPI.getById(order.id);
+                          if (res.success && res.data) {
+                            setSelectedOrder(res.data);
+                          } else {
+                            setSelectedOrder(order); // fallback
+                          }
+                          setEditMode(false);
+                          setEditOrder(null);
+                          setShowDialog(true);
+                        }}>
                           ดูรายละเอียด
                         </Button>
                       </TableCell>
@@ -694,6 +689,14 @@ const PurchaseOrderList = () => {
             <UIDialogTitle>รายละเอียดใบขอซื้อ</UIDialogTitle>
           </UIDialogHeader>
           {(editMode ? editOrder : selectedOrder) && (
+            (() => {
+              console.log('DEBUG selectedOrder:', editMode ? editOrder : selectedOrder);
+              console.log('DEBUG items:', (editMode ? editOrder : selectedOrder)?.items);
+              console.log('DEBUG products:', products);
+              return null;
+            })()
+          )}
+          {(editMode ? editOrder : selectedOrder) && (
             <div className="space-y-4 print:block">
               <div className="flex justify-between items-center">
                 <div>
@@ -743,42 +746,45 @@ const PurchaseOrderList = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(editMode ? editOrder.items : selectedOrder.items).map((item: any, idx: number) => (
-                      <TableRow key={item.id}>
-                        <TableCell>{item.name}</TableCell>
-                        <TableCell>
-                          {editMode ? (
-                            <input type="number" min={1} value={item.currentQuantity} onChange={e => handleEditItemField(idx, 'currentQuantity', parseInt(e.target.value) || 1)} className="w-16 border rounded px-1" />
-                          ) : item.currentQuantity}
-                        </TableCell>
-                        <TableCell>
-                          {editMode ? (
-                            <input type="number" min={0} step={0.01} value={item.currentPrice} onChange={e => handleEditItemField(idx, 'currentPrice', parseFloat(e.target.value) || 0)} className="w-20 border rounded px-1" />
-                          ) : `฿${item.currentPrice?.toFixed(2)}`}
-                        </TableCell>
-                        <TableCell>฿{item.totalPrice?.toFixed(2)}</TableCell>
-                        <TableCell>
-                          {editMode ? (
-                            <select
-                              className="w-32 border rounded px-1"
-                              value={item.sellerId || ''}
-                              onChange={e => {
-                                const sellerId = e.target.value;
-                                const seller = sellers.find(s => s.id === sellerId);
-                                handleEditItemField(idx, 'sellerId', sellerId);
-                                handleEditItemField(idx, 'sellerName', seller ? seller.name : '');
-                              }}
-                            >
-                              {sellers.map(seller => (
-                                <option key={seller.id} value={seller.id}>{seller.name}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            getSellerName(item)
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {(editMode ? editOrder.items : selectedOrder.items).map((item: any, idx: number) => {
+                      const enriched = enrichItem(item);
+                      return (
+                        <TableRow key={enriched.id || enriched.product_id || idx}>
+                          <TableCell>{enriched.name}</TableCell>
+                          <TableCell>
+                            {editMode ? (
+                              <input type="number" min={1} value={enriched.currentQuantity} onChange={e => handleEditItemField(idx, 'currentQuantity', parseInt(e.target.value) || 1)} className="w-16 border rounded px-1" />
+                            ) : enriched.currentQuantity}
+                          </TableCell>
+                          <TableCell>
+                            {editMode ? (
+                              <input type="number" min={0} step={0.01} value={enriched.currentPrice} onChange={e => handleEditItemField(idx, 'currentPrice', parseFloat(e.target.value) || 0)} className="w-20 border rounded px-1" />
+                            ) : `฿${enriched.currentPrice?.toFixed(2)}`}
+                          </TableCell>
+                          <TableCell>฿{enriched.totalPrice?.toFixed(2) || (enriched.currentPrice * enriched.currentQuantity).toFixed(2)}</TableCell>
+                          <TableCell>
+                            {editMode ? (
+                              <select
+                                className="w-32 border rounded px-1"
+                                value={enriched.sellerId || ''}
+                                onChange={e => {
+                                  const sellerId = e.target.value;
+                                  const seller = sellers.find(s => s.id === sellerId);
+                                  handleEditItemField(idx, 'sellerId', sellerId);
+                                  handleEditItemField(idx, 'sellerName', seller ? seller.name : '');
+                                }}
+                              >
+                                {sellers.map(seller => (
+                                  <option key={seller.id} value={seller.id}>{seller.name}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              getSellerName(enriched)
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

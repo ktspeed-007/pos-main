@@ -91,7 +91,8 @@ CREATE TABLE purchase_orders (
     creditDays INTEGER,
     dueDate DATE,
     created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    updated_at TIMESTAMP DEFAULT NOW(),
+    received_at TIMESTAMP
 );
 
 CREATE TABLE sales (
@@ -122,6 +123,19 @@ CREATE TABLE shop_info (
     taxId VARCHAR(20),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE purchase_order_items (
+    id SERIAL PRIMARY KEY,
+    purchase_order_id VARCHAR(50) REFERENCES purchase_orders(id) ON DELETE CASCADE,
+    product_id UUID REFERENCES products(id),
+    qty INTEGER NOT NULL,
+    received_qty INTEGER DEFAULT 0,
+    received_at TIMESTAMP,
+    lotCode VARCHAR(50),
+    expiryDate DATE,
+    price NUMERIC(10,2),
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Grant permissions to posuser

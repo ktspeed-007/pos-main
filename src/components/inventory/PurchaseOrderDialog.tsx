@@ -26,9 +26,11 @@ import { purchaseOrderAPI } from '@/services/api/purchaseOrderAPI';
 type PurchaseOrderItem = {
   id: string;
   productId: string;
+  product_id?: string; // เพิ่ม field นี้เพื่อรองรับ mapping
   name: string;
   productCode: string;
   lotCode: string;
+  expiryDate?: string; // เพิ่ม field นี้
   category: string;
   originalPrice: number;
   currentPrice: number;
@@ -55,6 +57,12 @@ type PurchaseOrder = {
   createdAt: string;
   updatedAt: string;
   notes: string;
+  sellerId?: string;
+  sellerName?: string;
+  paymentMethod?: string | { cash: boolean; check: boolean; credit: boolean; };
+  creditDays?: number;
+  dueDate?: string | null;
+  expectedDeliveryDate?: string | null;
 };
 
 type PurchaseOrderDialogProps = {
@@ -144,11 +152,12 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
         const storageObj = storageLocations.find(s => s.id === product.storageLocationId);
         return {
           ...product,
-          sellerName: sellerObj ? sellerObj.name : '',
+          sellerName: sellerObj ? sellerObj.name : null, // เปลี่ยนจาก '' เป็น null
           warehouseId: product.warehouseId || (warehouseObj ? warehouseObj.id : ''),
           warehouseName: product.warehouseName || (warehouseObj ? warehouseObj.name : ''),
           storageLocationId: product.storageLocationId || (storageObj ? storageObj.id : ''),
           storageLocationName: product.storageLocationName || (storageObj ? storageObj.name : ''),
+          expiryDate: product.expiryDate || '2025-07-20', // เพิ่ม expiryDate field
         };
       });
       // Calculate totals
@@ -191,6 +200,37 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
       savePurchaseOrderToStorage(purchaseOrder);
     }
   }, [open]);
+
+  // 1. Set default seller from first product (และแสดงชื่อใน Select)
+  useEffect(() => {
+    if (open && products.length > 0 && purchaseOrder && !purchaseOrder.sellerId) {
+      const firstSellerId = products[0]?.sellerId || '';
+      const firstSeller = sellers.find(s => s.id === firstSellerId);
+      if (firstSellerId) {
+        handleChange('sellerId', firstSellerId);
+        handleChange('sellerName', firstSeller ? firstSeller.name : null); // เปลี่ยนจาก '' เป็น null
+      }
+    }
+  }, [open, products, purchaseOrder, sellers]);
+
+  // 2. State for paymentMethod (radio group)
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'check' | 'credit'>('cash');
+
+  // 3. Update paymentMethod in purchaseOrder when changed
+  useEffect(() => {
+    if (purchaseOrder) {
+      handleChange('paymentMethod', paymentMethod);
+    }
+  }, [paymentMethod]);
+
+  // 4. Auto-calculate dueDate when creditDays or createdAt changes and paymentMethod === 'credit'
+  useEffect(() => {
+    if (purchaseOrder && paymentMethod === 'credit' && purchaseOrder.creditDays && purchaseOrder.createdAt) {
+      const created = new Date(purchaseOrder.createdAt);
+      const due = new Date(created.getTime() + (purchaseOrder.creditDays * 24 * 60 * 60 * 1000));
+      handleChange('dueDate', due.toISOString().slice(0, 10));
+    }
+  }, [purchaseOrder?.creditDays, purchaseOrder?.createdAt, paymentMethod]);
 
   const updateItem = (itemId: string, field: keyof PurchaseOrderItem, value: any) => {
     const updatedItems = orderItems.map(item => {
@@ -267,18 +307,49 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
     }
   };
 
+  // ฟังก์ชัน handleChange สำหรับ input ต่าง ๆ
+  const handleChange = (field: keyof PurchaseOrder, value: any) => {
+    setPurchaseOrder(prev => prev ? { ...prev, [field]: value } : prev);
+  };
+
+  const mapOrderItemsToBackend = (items: PurchaseOrderItem[]) =>
+    items.map(item => ({
+      product_id: Number(item.id), // ใช้ integer id เท่านั้น
+      name: item.name,
+      qty: item.currentQuantity,
+      price: item.currentPrice,
+      lotcode: item.lotCode || (item as any).lotcode || 'A0001', // item.lotCode is camelCase from frontend
+      expirydate: item.expiryDate || (item as any).expirydate || '2025-07-20', // item.expiryDate is camelCase from frontend
+      sellerId: item.sellerId,
+      sellerName: item.sellerName,
+      warehouseId: item.warehouseId,
+      warehouseName: item.warehouseName,
+      storageLocationId: item.storageLocationId,
+      storageLocationName: item.storageLocationName,
+      // เพิ่ม field อื่น ๆ ที่ backend ต้องการ
+    }));
+
   const handleSave = async () => {
     setStatus('pending');
     if (purchaseOrder) {
-      // ไม่ต้องส่ง id ให้ backend generate id เอง
       const { id, totalAmount, createdAt, updatedAt, ...rest } = purchaseOrder;
-      const payload = { 
-        ...rest, 
-        total: totalAmount, 
-        status: 'pending' as const, 
-        notes,
-        createdBy: user?.username || 'unknown', // ส่งชื่อผู้สร้างไปกับ payload
+      const mappedItems = mapOrderItemsToBackend(orderItems);
+      console.log('DEBUG mappedItems:', mappedItems); // เพิ่ม log
+      const payload = {
+        ...rest,
+        items: mappedItems,
+        total: totalAmount, // เพิ่ม field นี้
+        status: 'pending' as const,
+        notes: notes ?? '',
+        createdBy: user?.username || 'unknown',
+        sellerId: purchaseOrder.sellerId || null, // เปลี่ยนจาก ?? '' เป็น || null
+        sellerName: purchaseOrder.sellerName || null, // เปลี่ยนจาก ?? '' เป็น || null
+        paymentMethod: JSON.stringify(paymentMethod), // ส่งเป็น string
+        creditDays: paymentMethod === 'credit' ? purchaseOrder.creditDays : null, // เปลี่ยนจาก undefined เป็น null
+        dueDate: paymentMethod === 'credit' ? purchaseOrder.dueDate : null,
+        expectedDeliveryDate: purchaseOrder.expectedDeliveryDate || null, // เปลี่ยนจาก ?? null เป็น || null
       };
+      console.log('DEBUG payload:', payload); // เพิ่ม log
       const res = await purchaseOrderAPI.create(payload);
       if (res.success && res.data) {
         const { status, createdBy, notes, ...restData } = res.data;
@@ -290,6 +361,9 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
           status: (['draft','pending','approved','cancelled'].includes(status) ? status : 'draft') as 'draft' | 'pending' | 'approved' | 'cancelled',
           createdBy: createdBy || user?.username || 'unknown',
           notes: notes ?? '',
+          paymentMethod: typeof restData.paymentMethod === 'object' && restData.paymentMethod !== null
+            ? restData.paymentMethod
+            : { cash: false, check: false, credit: false },
         });
         setPoNumber(res.data.id); // อัปเดตเลขที่ใบขอซื้อใน Dialog ให้ตรงกับ backend
         toast.success('บันทึกใบขอซื้อเรียบร้อยแล้ว');
@@ -306,8 +380,34 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
   const handleApprove = async () => {
     setStatus('approved');
     if (purchaseOrder) {
-      const { totalAmount, createdAt, updatedAt, ...rest } = purchaseOrder;
-      const payload = { ...rest, total: totalAmount, status: 'approved' as const, notes };
+      const mappedItems = mapOrderItemsToBackend(orderItems);
+      
+      // ใช้ paymentMethod จาก purchaseOrder แทนที่จะใช้ state
+      const currentPaymentMethod = purchaseOrder.paymentMethod || paymentMethod;
+      const paymentMethodString = typeof currentPaymentMethod === 'string' 
+        ? currentPaymentMethod 
+        : JSON.stringify(currentPaymentMethod);
+      
+      const payload = {
+        items: mappedItems,
+        total: purchaseOrder.totalAmount,
+        status: 'approved' as const,
+        notes: notes ?? '',
+        sellerid: purchaseOrder.sellerId || null,
+        sellername: purchaseOrder.sellerName || null,
+        paymentmethod: paymentMethodString,
+        creditdays: currentPaymentMethod === 'credit' ? purchaseOrder.creditDays : null,
+        duedate: currentPaymentMethod === 'credit' ? purchaseOrder.dueDate : null,
+        expecteddeliverydate: purchaseOrder.expectedDeliveryDate || null,
+        createdby: user?.username || 'unknown',
+      };
+      
+      // เพิ่ม debug logs
+      console.log('DEBUG handleApprove - purchaseOrder:', purchaseOrder);
+      console.log('DEBUG handleApprove - currentPaymentMethod:', currentPaymentMethod);
+      console.log('DEBUG handleApprove - paymentMethodString:', paymentMethodString);
+      console.log('DEBUG handleApprove - payload:', payload);
+      
       const res = await purchaseOrderAPI.update(purchaseOrder.id, payload);
       if (res.success && res.data) {
         const { status, createdBy, notes, ...restData } = res.data;
@@ -319,6 +419,9 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
           status: (['draft','pending','approved','cancelled'].includes(status) ? status : 'draft') as 'draft' | 'pending' | 'approved' | 'cancelled',
           createdBy: createdBy || user?.username || 'unknown',
           notes: notes ?? '',
+          paymentMethod: typeof restData.paymentMethod === 'object' && restData.paymentMethod !== null
+            ? restData.paymentMethod
+            : { cash: false, check: false, credit: false },
         });
         toast.success('อนุมัติใบขอซื้อเรียบร้อยแล้ว');
         // ส่ง event เพื่อรีเฟรชข้อมูลในหน้าอื่นๆ
@@ -334,8 +437,24 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
   const handleCancel = async () => {
     setStatus('cancelled');
     if (purchaseOrder) {
-      const { totalAmount, createdAt, updatedAt, ...rest } = purchaseOrder;
-      const payload = { ...rest, total: totalAmount, status: 'cancelled' as const, notes };
+      // ใช้ paymentMethod จาก purchaseOrder แทนที่จะใช้ state
+      const currentPaymentMethod = purchaseOrder.paymentMethod || paymentMethod;
+      const paymentMethodString = typeof currentPaymentMethod === 'string' 
+        ? currentPaymentMethod 
+        : JSON.stringify(currentPaymentMethod);
+      
+      const payload = {
+        total: purchaseOrder.totalAmount,
+        status: 'cancelled' as const,
+        notes,
+        paymentmethod: paymentMethodString,
+        sellerid: purchaseOrder.sellerId || null,
+        sellername: purchaseOrder.sellerName || null,
+        creditdays: currentPaymentMethod === 'credit' ? purchaseOrder.creditDays : null,
+        duedate: currentPaymentMethod === 'credit' ? purchaseOrder.dueDate : null,
+        expecteddeliverydate: purchaseOrder.expectedDeliveryDate || null,
+        createdby: user?.username || 'unknown',
+      };
       const res = await purchaseOrderAPI.update(purchaseOrder.id, payload);
       if (res.success && res.data) {
         const { status, createdBy, notes, ...restData } = res.data;
@@ -549,6 +668,50 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
                   <CardTitle>รายการสินค้า</CardTitle>
                 </CardHeader>
                 <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    {/* ผู้ขาย */}
+                    <div>
+                      <Label>ผู้ขาย</Label>
+                      <Select value={purchaseOrder?.sellerId || ''} onValueChange={val => {
+                        const seller = sellers.find(s => s.id === val);
+                        handleChange('sellerId', val);
+                        handleChange('sellerName', seller ? seller.name : '');
+                      }}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="เลือกผู้ขาย" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sellers.map(seller => (
+                            <SelectItem key={seller.id} value={seller.id}>{seller.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {/* วันที่ต้องการรับของ (อยู่บรรทัดล่างของผู้ขาย) */}
+                      <div className="mt-2">
+                        <Label>วันที่ต้องการรับของ</Label>
+                        <Input type="date" value={purchaseOrder?.expectedDeliveryDate || ''} onChange={e => handleChange('expectedDeliveryDate', e.target.value)} />
+                      </div>
+                    </div>
+                    {/* วิธีชำระเงิน (radio group) + เครดิต inline */}
+                    <div>
+                      <Label>วิธีการชำระเงิน</Label>
+                      <div className="flex flex-col gap-1">
+                        <label><input type="radio" checked={paymentMethod === 'cash'} onChange={() => setPaymentMethod('cash')} /> เงินสด</label>
+                        <label><input type="radio" checked={paymentMethod === 'check'} onChange={() => setPaymentMethod('check')} /> เช็ค</label>
+                        <label className="flex items-center gap-2">
+                          <input type="radio" checked={paymentMethod === 'credit'} onChange={() => setPaymentMethod('credit')} /> เครดิต
+                          {paymentMethod === 'credit' && (
+                            <>
+                              <Input type="number" min={0} value={purchaseOrder?.creditDays || 0} onChange={e => handleChange('creditDays', Number(e.target.value))} className="w-20 ml-2" />
+                              {/* วันครบกำหนด (อัตโนมัติ) inline ถัดจากจำนวนวัน */}
+                              <span className="ml-2 text-sm">วันครบกำหนด</span>
+                              <Input type="date" value={purchaseOrder?.dueDate || ''} readOnly className="w-36 ml-1" />
+                            </>
+                          )}
+                        </label>
+                      </div>
+                    </div>
+                  </div>
                   <div className="overflow-x-auto min-w-[1200px]">
                     <Table>
                       <TableHeader>
@@ -563,10 +726,8 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
                           <TableHead>ราคาใหม่</TableHead>
                           <TableHead>ส่วนต่าง/ชิ้น</TableHead>
                           <TableHead>ราคารวม</TableHead>
-                          <TableHead>ผู้ขาย</TableHead>
                           <TableHead>คลัง</TableHead>
                           <TableHead>ที่เก็บ</TableHead>
-                          <TableHead>การชำระ</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -603,27 +764,6 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
                               ฿{item.priceDifference.toFixed(2)}
                             </TableCell>
                             <TableCell className="font-medium">฿{item.totalPrice.toFixed(2)}</TableCell>
-                            <TableCell>
-                              <Select
-                                value={item.sellerId}
-                                onValueChange={(value) => {
-                                  const seller = sellers.find(s => s.id === value);
-                                  updateSeller(item.id, value, seller ? seller.name : '');
-                                }}
-                                disabled={status !== 'draft'}
-                              >
-                                <SelectTrigger className="w-32">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {sellers.map((seller) => (
-                                    <SelectItem key={seller.id} value={seller.id}>
-                                      {seller.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </TableCell>
                             <TableCell>
                               <Select
                                 value={item.warehouseId || undefined}
@@ -669,22 +809,6 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
                                       {storage.name}
                                     </SelectItem>
                                   ))}
-                                </SelectContent>
-                              </Select>
-                            </TableCell>
-                            <TableCell>
-                              <Select
-                                value={item.paymentMethod}
-                                onValueChange={(value) => updateItem(item.id, 'paymentMethod', value)}
-                                disabled={status !== 'draft'}
-                              >
-                                <SelectTrigger className="w-24">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="cash">เงินสด</SelectItem>
-                                  <SelectItem value="check">เช็ค</SelectItem>
-                                  <SelectItem value="credit">เครดิต</SelectItem>
                                 </SelectContent>
                               </Select>
                             </TableCell>

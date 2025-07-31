@@ -71,4 +71,14 @@ export const purchaseOrderAPI = {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   },
+
+  async getById(id: string): Promise<{ success: boolean; data?: PurchaseOrder; error?: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/purchase-orders/${id}`);
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
 }; 
