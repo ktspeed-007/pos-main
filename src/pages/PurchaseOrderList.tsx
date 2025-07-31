@@ -15,6 +15,7 @@ import { productsAPI } from '@/services/api';
 import { warehouseAPI } from '@/services/api/warehouseAPI';
 import { storageLocationAPI } from '@/services/api/storageLocationAPI';
 import { shopInfoAPI } from '@/services/api/shopInfoAPI';
+
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
 import { useStore } from '../contexts/StoreContext';
@@ -63,6 +64,26 @@ const PurchaseOrderList = () => {
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
   const [receiveOrder, setReceiveOrder] = useState<any>(null);
   const [receiveItems, setReceiveItems] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+
+  // ฟังก์ชันแปลง username เป็นชื่อ
+  const getUserName = (username: string) => {
+    if (!username) return 'ไม่ระบุ';
+    
+    // ใช้ข้อมูลจาก users list หากมี
+    if (users.length > 0) {
+      const user = users.find((u: any) => u.username === username);
+      if (user) return user.name;
+    }
+    
+    // หากไม่มีใน users list ให้ใช้ข้อมูลจาก backend โดยตรง
+    const userMap: { [key: string]: string } = {
+      'admin': 'ผู้ดูแลระบบ',
+      'staff': 'พนักงานขาย'
+    };
+    
+    return userMap[username] || username;
+  };
 
   // ฟังก์ชันเปิด dialog ใส่รหัสผ่าน (reset state ทุกครั้ง)
   const openPasswordDialog = () => {
@@ -102,6 +123,14 @@ const PurchaseOrderList = () => {
       if (res.success && Array.isArray(res.data)) setProducts(res.data);
       else setProducts([]);
     });
+    // โหลด users list จาก backend โดยตรง
+    fetch('/api/users')
+      .then(res => res.json())
+      .then(res => {
+        if (res.success && Array.isArray(res.data)) setUsers(res.data);
+        else setUsers([]);
+      })
+      .catch(() => setUsers([]));
   }, [showDialog]);
 
   useEffect(() => {
@@ -122,6 +151,8 @@ const PurchaseOrderList = () => {
   });
 
   const handlePrint = async (order: any) => {
+    console.log('DEBUG: handlePrint called with order:', order);
+    
     // โหลด shopInfo ใหม่ล่าสุด
     let shopName = '-';
     try {
@@ -131,31 +162,40 @@ const PurchaseOrderList = () => {
     } catch (e) {
       if (shopInfo?.name) shopName = shopInfo.name;
     }
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
+    
+    console.log('DEBUG: shopName loaded:', shopName);
+    
+    // เตรียมข้อมูลสำหรับพิมพ์
     const items = (order.items || []).map(enrichItem);
+    console.log('DEBUG: items after enrichItem:', items);
     const totalAmount = items.reduce((sum: number, item: any) => sum + (item.totalPrice || 0), 0);
-    // รวมชื่อผู้ขายทั้งหมด (ไม่ซ้ำ)
-    const uniqueSellers = Array.from(new Set(items.map((item: any) => item.sellerId).filter(Boolean)));
-    // ดึงข้อมูลผู้ขายจาก sellers list
-    const sellerDetails = uniqueSellers.map(sid => {
-      const seller = sellers.find((s: any) => String(s.id) === String(sid));
-      if (!seller) return '-';
-      const name = seller.name || '-';
-      const address = seller.address || '-';
-      const taxId = seller.taxId || seller.taxid || '-';
-      const phone = seller.phone || '-';
-      let detail = `${name}, ที่อยู่: ${address}, เลขผู้เสียภาษี: ${taxId}, เบอร์โทร: ${phone}`;
-      // ถ้ายาวเกิน 60 ตัวอักษร ให้ตัดขึ้นบรรทัดใหม่
-      if (detail.length > 60) {
-        const idx = detail.lastIndexOf(',', 60);
-        if (idx > 0) {
-          detail = detail.slice(0, idx + 1) + '<br>' + detail.slice(idx + 1).trim();
+    // ใช้ข้อมูลผู้ขายจาก order แทน
+    let sellerDisplay = '-';
+    if (order.sellerid && order.sellername) {
+      // หาข้อมูลผู้ขายจาก sellers list
+      const seller = sellers.find((s: any) => String(s.id) === String(order.sellerid));
+      if (seller) {
+        const name = seller.name || order.sellername || '-';
+        const address = seller.address || '-';
+        const taxId = seller.taxId || seller.taxid || '-';
+        const phone = seller.phone || '-';
+        let detail = `${name}, ที่อยู่: ${address}, เลขผู้เสียภาษี: ${taxId}, เบอร์โทร: ${phone}`;
+        // ถ้ายาวเกิน 60 ตัวอักษร ให้ตัดขึ้นบรรทัดใหม่
+        if (detail.length > 60) {
+          const idx = detail.lastIndexOf(',', 60);
+          if (idx > 0) {
+            detail = detail.slice(0, idx + 1) + '<br>' + detail.slice(idx + 1).trim();
+          }
         }
+        sellerDisplay = detail;
+      } else {
+        // ถ้าไม่พบใน sellers list ให้ใช้ข้อมูลจาก order
+        sellerDisplay = order.sellername || '-';
       }
-      return detail;
-    });
-    const sellerDisplay = sellerDetails.length > 0 ? sellerDetails.join('<br>') : '-';
+    }
+    console.log('DEBUG: sellerDisplay:', sellerDisplay);
+    
+    // สร้าง HTML content สำหรับพิมพ์
     const printContent = `
       <!DOCTYPE html>
       <html>
@@ -189,7 +229,10 @@ const PurchaseOrderList = () => {
             <strong>ผู้ขาย:</strong> ${sellerDisplay}
           </div>
           <div>
-            <strong>สถานะ:</strong> ${(order.status === 'draft' ? 'ร่าง' : order.status === 'pending' ? 'รอดำเนินการ' : order.status === 'approved' ? 'อนุมัติแล้ว' : order.status === 'cancelled' ? 'ยกเลิก' : order.status)}
+            <strong>สถานะ:</strong> ${(order.status === 'draft' ? 'ร่าง' : order.status === 'pending' ? 'รอดำเนินการ' : order.status === 'approved' ? 'อนุมัติแล้ว' : order.status === 'cancelled' ? 'ยกเลิก' : order.status === 'received' ? 'รับของแล้ว' : order.status)}
+            ${order.status === 'approved' && order.updated_at ? `<br><small>อนุมัติเมื่อ: ${new Date(order.updated_at).toLocaleString('th-TH')}<br>โดย: ${getUserName(order.createdBy)}</small>` : ''}
+            ${order.status === 'received' && order.received_at ? `<br><small>รับของเมื่อ: ${new Date(order.received_at).toLocaleString('th-TH')}<br>โดย: ${getUserName(order.createdBy)}</small>` : ''}
+            ${order.status === 'cancelled' && order.updated_at ? `<br><small>ยกเลิกเมื่อ: ${new Date(order.updated_at).toLocaleString('th-TH')}<br>โดย: ${getUserName(order.createdBy)}</small>` : ''}
           </div>
         </div>
         <table class="product-table">
@@ -212,8 +255,8 @@ const PurchaseOrderList = () => {
                 <td>${item.lotCode || '-'}</td>
                 <td>${item.name || '-'}</td>
                 <td>${item.currentQuantity || '-'}</td>
-                <td>฿${item.currentPrice?.toFixed(2) || '-'}</td>
-                <td>฿${item.totalPrice?.toFixed(2) || '-'}</td>
+                <td>฿${(Number(item.currentPrice) || 0).toFixed(2)}</td>
+                <td>฿${(Number(item.totalPrice) || 0).toFixed(2)}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -237,9 +280,64 @@ const PurchaseOrderList = () => {
       </body>
       </html>
     `;
-    printWindow.document.write(printContent);
-    printWindow.document.close();
-    printWindow.print();
+    
+    console.log('DEBUG: printContent created, length:', printContent.length);
+    
+    // สร้าง div สำหรับพิมพ์
+    const printDiv = document.createElement('div');
+    printDiv.innerHTML = printContent;
+    printDiv.style.position = 'fixed';
+    printDiv.style.top = '0';
+    printDiv.style.left = '0';
+    printDiv.style.width = '100%';
+    printDiv.style.height = '100%';
+    printDiv.style.backgroundColor = 'white';
+    printDiv.style.zIndex = '9999';
+    printDiv.style.display = 'block';
+    document.body.appendChild(printDiv);
+    
+    console.log('DEBUG: printDiv created and added to body');
+    
+    // ซ่อนเนื้อหาอื่นๆ
+    const allElements = document.body.children;
+    const hiddenElements = [];
+    
+    for (let i = 0; i < allElements.length; i++) {
+      const element = allElements[i] as HTMLElement;
+      if (element !== printDiv) {
+        const originalDisplay = element.style.display;
+        element.style.display = 'none';
+        hiddenElements.push({ element, originalDisplay });
+      }
+    }
+    
+    console.log('DEBUG: About to call window.print()');
+    
+    // รอสักครู่แล้วพิมพ์
+    setTimeout(() => {
+      try {
+        console.log('DEBUG: Calling window.print()');
+        window.print();
+        console.log('DEBUG: window.print() called successfully');
+        // คืนค่าเดิมหลังจากพิมพ์เสร็จ
+        setTimeout(() => {
+          // แสดงเนื้อหาอื่นๆ กลับมา
+          hiddenElements.forEach(({ element, originalDisplay }) => {
+            element.style.display = originalDisplay;
+          });
+          document.body.removeChild(printDiv);
+          console.log('DEBUG: Print cleanup completed');
+        }, 1000);
+      } catch (error) {
+        console.error('Print error:', error);
+        toast.error('เกิดข้อผิดพลาดในการพิมพ์');
+        // แสดงเนื้อหาอื่นๆ กลับมา
+        hiddenElements.forEach(({ element, originalDisplay }) => {
+          element.style.display = originalDisplay;
+        });
+        document.body.removeChild(printDiv);
+      }
+    }, 500);
   };
 
   // helper สำหรับ refresh รายการใบขอซื้อจาก API
@@ -526,16 +624,24 @@ const PurchaseOrderList = () => {
 
   // helper: เติมข้อมูลสินค้าให้กับ item ถ้าขาด (เช่น name, productCode, price)
   function enrichItem(item) {
+    console.log('DEBUG: enrichItem - item:', item);
+    console.log('DEBUG: enrichItem - products length:', products.length);
+    
     const prod = products.find(p => String(p.id) === String(item.product_id || item.productId));
-    return {
+    console.log('DEBUG: enrichItem - found product:', prod);
+    
+    const enriched = {
       ...item,
       name: item.name || prod?.name || '-',
-      productCode: item.productCode || prod?.productCode || '-',
+      productCode: item.productCode || item.productcode || prod?.productCode || '-',
       currentQuantity: item.currentQuantity ?? item.qty ?? 0,
       currentPrice: item.currentPrice ?? item.price ?? prod?.price ?? 0,
       totalPrice: item.totalPrice ?? ((item.currentPrice ?? item.price ?? prod?.price ?? 0) * (item.currentQuantity ?? item.qty ?? 0)),
-      lotCode: item.lotCode || prod?.lotCode || '-',
+      lotCode: item.lotCode || item.lotcode || prod?.lotCode || '-',
     };
+    
+    console.log('DEBUG: enrichItem - enriched result:', enriched);
+    return enriched;
   }
 
   return (
