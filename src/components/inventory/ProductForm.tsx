@@ -147,12 +147,19 @@ const ProductForm = ({ product, onClose, defaultLotCode }: ProductFormProps) => 
 
   // เพิ่ม useEffect auto-generate barcode เมื่อ productCode หรือ lotCode เปลี่ยน
   useEffect(() => {
+    console.log('DEBUG: useEffect barcode - formData.productCode:', formData.productCode);
+    console.log('DEBUG: useEffect barcode - formData.lotCode:', formData.lotCode);
+    console.log('DEBUG: useEffect barcode - formData.barcode:', formData.barcode);
+    
     if (formData.productCode && formData.lotCode) {
+      const newBarcode = formData.productCode + formData.lotCode;
+      console.log('DEBUG: useEffect barcode - newBarcode:', newBarcode);
       setFormData(prev => ({
         ...prev,
-        barcode: formData.productCode + formData.lotCode
+        barcode: newBarcode
       }));
     } else {
+      console.log('DEBUG: useEffect barcode - clearing barcode');
       setFormData(prev => ({
         ...prev,
         barcode: ''

@@ -89,6 +89,13 @@ app.put('/api/products/:id', async (req, res) => {
   // แปลง string ว่างเป็น null และ string เป็น int
   const category_id = categoryId ? parseInt(categoryId) : null;
   
+  // Auto-generate barcode if productCode and lotCode are provided
+  let finalBarcode = barcode;
+  if (productCode && lotCode) {
+    finalBarcode = productCode + lotCode;
+    console.log('DEBUG: auto-generate barcode:', { productCode, lotCode, finalBarcode });
+  }
+  
   try {
     const result = await pool.query(
       `UPDATE products SET 
@@ -98,7 +105,7 @@ app.put('/api/products/:id', async (req, res) => {
         active = $19, minStock = $20, maxStock = $21, updated_at = NOW()
       WHERE id = $22 RETURNING *`,
       [
-        productCode, lotCode, barcode, name, price, stock || 0, category_id,
+        productCode, lotCode, finalBarcode, name, price, stock || 0, category_id,
         sellerId, seller, warehouseId, warehouseName, storageLocationId, storageLocationName,
         productionDate, expiryDate, JSON.stringify(paymentMethods), creditDays, dueDate,
         active !== false, minStock || 0, maxStock || 0, id
@@ -121,9 +128,38 @@ app.patch('/api/products/:id', async (req, res) => {
   const { id } = req.params;
   const fields = req.body;
   const allowed = ['name', 'price', 'stock', 'active', 'categoryId', 'sellerId', 'seller', 'warehouseId', 'warehouseName', 'storageLocationId', 'storageLocationName', 'productCode', 'lotCode', 'productionDate', 'expiryDate', 'paymentMethods', 'creditDays', 'dueDate', 'minStock', 'maxStock'];
+  
+  // ดึงข้อมูลสินค้าปัจจุบันเพื่อ auto-generate barcode
+  let currentProduct = null;
+  if (fields.productCode || fields.lotCode) {
+    try {
+      const currentResult = await pool.query('SELECT productCode, lotCode FROM products WHERE id = $1', [id]);
+      if (currentResult.rows.length > 0) {
+        currentProduct = currentResult.rows[0];
+      }
+    } catch (err) {
+      console.error('Error fetching current product:', err);
+    }
+  }
+  
   const set = [];
   const values = [];
   let idx = 1;
+  
+  // Auto-generate barcode if productCode or lotCode is being updated
+  if (fields.productCode || fields.lotCode) {
+    const newProductCode = fields.productCode || currentProduct?.productcode;
+    const newLotCode = fields.lotCode || currentProduct?.lotcode;
+    
+    if (newProductCode && newLotCode) {
+      const newBarcode = newProductCode + newLotCode;
+      console.log('DEBUG: PATCH auto-generate barcode:', { newProductCode, newLotCode, newBarcode });
+      set.push(`barcode = $${idx}`);
+      values.push(newBarcode);
+      idx++;
+    }
+  }
+  
   for (const key of allowed) {
     if (fields[key] !== undefined) {
       if (key === 'categoryId') {
@@ -136,6 +172,7 @@ app.patch('/api/products/:id', async (req, res) => {
       idx++;
     }
   }
+  
   if (set.length === 0) {
     return res.status(400).json({ success: false, error: 'No valid fields to update' });
   }

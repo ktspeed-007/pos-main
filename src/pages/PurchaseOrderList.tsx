@@ -525,8 +525,8 @@ const PurchaseOrderList = () => {
       if (response.success) {
         toast.success('บันทึกการแก้ไขเรียบร้อย');
         await refreshOrders();
-        setEditMode(false);
-        setShowDialog(false);
+    setEditMode(false);
+    setShowDialog(false);
       } else {
         toast.error('เกิดข้อผิดพลาดในการบันทึก: ' + (response.error || 'ไม่ทราบสาเหตุ'));
       }
@@ -590,13 +590,15 @@ const PurchaseOrderList = () => {
   const handleOpenReceiveDialog = (order: any) => {
     setReceiveOrder(order);
     console.log('DEBUG: order.items for receive:', order.items); // เพิ่ม debug log
-    // สร้าง receiveItems จาก order.items โดยเพิ่ม receivedQuantity
-    // ใช้ id จาก purchase_order_items (ไม่ใช่ product_id)
-    const items = order.items.map((item: any) => ({
-      ...item,
-      receivedQuantity: item.received_qty || item.currentQuantity || item.qty || 0, // ใช้ received_qty จาก DB
-      receivedNotes: '',
-    }));
+    // สร้าง receiveItems จาก order.items โดยเพิ่ม receivedQuantity และ enrich ข้อมูล
+    const items = order.items.map((item: any) => {
+      const enrichedItem = enrichItem(item);
+      return {
+        ...enrichedItem,
+        receivedQuantity: item.received_qty || enrichedItem.currentQuantity || item.qty || 0, // ใช้ received_qty จาก DB
+        receivedNotes: '',
+      };
+    });
     console.log('DEBUG: receiveItems created:', items); // เพิ่ม debug log
     setReceiveItems(items);
     setShowReceiveDialog(true);
@@ -770,11 +772,15 @@ const PurchaseOrderList = () => {
                       <TableCell>฿{order.totalAmount?.toFixed(2) || '-'}</TableCell>
                       <TableCell>
                         <Button size="sm" variant="outline" onClick={async () => {
+                          console.log('DEBUG: Opening PO details for order:', order.id);
                           // ดึงข้อมูล PO รายตัวจาก API เพื่อให้แน่ใจว่า items ครบ
                           const res = await purchaseOrderAPI.getById(order.id);
+                          console.log('DEBUG: API response:', res);
                           if (res.success && res.data) {
+                            console.log('DEBUG: Setting selectedOrder with API data:', res.data);
                             setSelectedOrder(res.data);
                           } else {
+                            console.log('DEBUG: Using fallback order data:', order);
                             setSelectedOrder(order); // fallback
                           }
                           setEditMode(false);
@@ -860,11 +866,20 @@ const PurchaseOrderList = () => {
               console.log('DEBUG selectedOrder:', editMode ? editOrder : selectedOrder);
               console.log('DEBUG items:', (editMode ? editOrder : selectedOrder)?.items);
               console.log('DEBUG products:', products);
+              console.log('DEBUG items length:', (editMode ? editOrder : selectedOrder)?.items?.length);
+              console.log('DEBUG items type:', typeof (editMode ? editOrder : selectedOrder)?.items);
               return null;
             })()
           )}
           {(editMode ? editOrder : selectedOrder) && (
             <div className="space-y-4 print:block">
+              {(() => {
+                const order = editMode ? editOrder : selectedOrder;
+                console.log('DEBUG: Rendering order details:', order);
+                console.log('DEBUG: Order ID:', order?.id);
+                console.log('DEBUG: Order items:', order?.items);
+                return null;
+              })()}
               <div className="flex justify-between items-center">
                 <div>
                   <div className="font-bold text-lg">เลขที่: {(editMode ? editOrder : selectedOrder).id}</div>
@@ -912,57 +927,73 @@ const PurchaseOrderList = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(editMode ? editOrder.items : selectedOrder.items).map((item: any, idx: number) => {
-                      const enriched = enrichItem(item);
-                      return (
-                        <TableRow key={enriched.id || enriched.product_id || idx}>
-                          <TableCell>{enriched.name}</TableCell>
+                    {(() => {
+                      const items = editMode ? editOrder.items : selectedOrder.items;
+                      console.log('DEBUG: Rendering items:', items);
+                      console.log('DEBUG: Items is array:', Array.isArray(items));
+                      
+                      if (!items || !Array.isArray(items) || items.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-4 text-gray-500">
+                              ไม่พบรายการสินค้า
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }
+                      
+                      return items.map((item: any, idx: number) => {
+                        const enriched = enrichItem(item);
+                        return (
+                          <TableRow key={enriched.id || enriched.product_id || idx}>
+                            <TableCell>{enriched.name}</TableCell>
                           <TableCell>
                             {editMode ? (
-                              <input 
-                                type="number" 
-                                min={1} 
-                                value={enriched.currentQuantity} 
-                                onChange={e => {
-                                  console.log('DEBUG: quantity input changed - idx:', idx, 'value:', e.target.value);
-                                  handleEditItemField(idx, 'qty', parseInt(e.target.value) || 1);
-                                }} 
-                                className="w-16 border rounded px-1" 
-                              />
-                            ) : enriched.currentQuantity}
+                                <input 
+                                  type="number" 
+                                  min={1} 
+                                  value={enriched.currentQuantity} 
+                                  onChange={e => {
+                                    console.log('DEBUG: quantity input changed - idx:', idx, 'value:', e.target.value);
+                                    handleEditItemField(idx, 'qty', parseInt(e.target.value) || 1);
+                                  }} 
+                                  className="w-16 border rounded px-1" 
+                                />
+                              ) : enriched.currentQuantity}
                           </TableCell>
                           <TableCell>
                             {editMode ? (
-                              <input 
-                                type="number" 
-                                min={0} 
-                                step={0.01} 
-                                value={enriched.currentPrice} 
-                                onChange={e => {
-                                  console.log('DEBUG: price input changed - idx:', idx, 'value:', e.target.value);
-                                  handleEditItemField(idx, 'price', parseFloat(e.target.value) || 0);
-                                }} 
-                                className="w-20 border rounded px-1" 
-                              />
-                            ) : `฿${(Number(enriched.currentPrice) || 0).toFixed(2)}`}
+                                <input 
+                                  type="number" 
+                                  min={0} 
+                                  step={0.01} 
+                                  value={enriched.currentPrice} 
+                                  onChange={e => {
+                                    console.log('DEBUG: price input changed - idx:', idx, 'value:', e.target.value);
+                                    handleEditItemField(idx, 'price', parseFloat(e.target.value) || 0);
+                                  }} 
+                                  className="w-20 border rounded px-1" 
+                                />
+                              ) : `฿${(Number(enriched.currentPrice) || 0).toFixed(2)}`}
                           </TableCell>
-                          <TableCell>฿{(Number(enriched.totalPrice) || (Number(enriched.currentPrice) * Number(enriched.currentQuantity)) || 0).toFixed(2)}</TableCell>
-                        </TableRow>
-                      );
-                    })}
+                            <TableCell>฿{(Number(enriched.totalPrice) || (Number(enriched.currentPrice) * Number(enriched.currentQuantity)) || 0).toFixed(2)}</TableCell>
+                          </TableRow>
+                        );
+                      });
+                    })()}
                   </TableBody>
                 </Table>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">ผู้ขาย:</label>
-                  {editMode ? (
-                    <select
+                          {editMode ? (
+                            <select
                       className="w-full border rounded px-2 py-1"
                       value={editOrder.sellerid || ''}
-                      onChange={e => {
-                        const sellerId = e.target.value;
-                        const seller = sellers.find(s => s.id === sellerId);
+                              onChange={e => {
+                                const sellerId = e.target.value;
+                                const seller = sellers.find(s => s.id === sellerId);
                         console.log('DEBUG: seller selection - sellerId:', sellerId);
                         console.log('DEBUG: seller selection - seller:', seller);
                         console.log('DEBUG: seller selection - seller.name:', seller ? seller.name : '');
@@ -971,14 +1002,14 @@ const PurchaseOrderList = () => {
                         console.log('DEBUG: seller selection - typeof sellerId:', typeof sellerId);
                         handleEditField('sellerid', sellerId);
                         handleEditField('sellername', seller ? seller.name : null);
-                      }}
-                    >
-                      <option value="">เลือกผู้ขาย</option>
-                      {sellers.map(seller => (
-                        <option key={seller.id} value={seller.id}>{seller.name}</option>
-                      ))}
-                    </select>
-                  ) : (
+                              }}
+                            >
+                              <option value="">เลือกผู้ขาย</option>
+                              {sellers.map(seller => (
+                                <option key={seller.id} value={seller.id}>{seller.name}</option>
+                              ))}
+                            </select>
+                          ) : (
                     <div className="bg-gray-50 p-2 rounded text-sm text-gray-700 min-h-[32px]">
                       {selectedOrder.sellername || getSellerName(selectedOrder) || '-'}
                     </div>
@@ -993,7 +1024,7 @@ const PurchaseOrderList = () => {
                       0
                     ).toFixed(2)}
                   </div>
-                </div>
+              </div>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">หมายเหตุ:</label>
