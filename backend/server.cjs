@@ -791,9 +791,15 @@ app.put('/api/purchase-orders/:id', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Purchase order not found after update' });
     }
     
-    po.items = await getPurchaseOrderItems(po.id);
-    console.log('DEBUG: final response po:', po); // เพิ่ม debug log
-    res.json({ success: true, data: po });
+    try {
+      po.items = await getPurchaseOrderItems(po.id);
+      console.log('DEBUG: final response po:', po); // เพิ่ม debug log
+      res.json({ success: true, data: po });
+    } catch (itemsError) {
+      console.error('DEBUG: Error getting items:', itemsError);
+      // ส่งข้อมูล PO โดยไม่มี items แทนที่จะ error
+      res.json({ success: true, data: po });
+    }
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);
@@ -1193,7 +1199,7 @@ app.post('/api/purchase-orders/migrate-items', async (req, res) => {
 async function getPurchaseOrderItems(purchase_order_id) {
   const result = await pool.query(
     `SELECT i.id, i.purchase_order_id, i.product_id, i.qty, i.received_qty, i.lotcode, i.expirydate, i.price, i.created_at,
-            p.name, p.productCode, p.lotCode AS productLotCode, p.barcode, p.price AS productPrice
+            p.name, p.productCode, p.lotCode AS productLotCode, p.barcode, p.price AS productPrice, p.seller, p.sellerid
      FROM purchase_order_items i
      LEFT JOIN products p ON i.product_id = p.id
      WHERE i.purchase_order_id = $1

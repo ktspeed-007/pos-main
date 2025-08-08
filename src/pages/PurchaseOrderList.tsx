@@ -357,7 +357,7 @@ const PurchaseOrderList = () => {
               let sellerName = item.sellerName;
               if (!sellerName && item.sellerId && sellers.length > 0) {
                 const found = sellers.find((s) => String(s.id) === String(item.sellerId));
-                sellerName = found ? found.name : '';
+                sellerName = found ? found.name : null;
               }
               return { ...item, sellerName };
             })
@@ -446,34 +446,94 @@ const PurchaseOrderList = () => {
   };
 
   const handleEditField = (field: string, value: any) => {
-    setEditOrder((prev: any) => ({ ...prev, [field]: value }));
+    console.log('DEBUG: handleEditField - field:', field, 'value:', value);
+    console.log('DEBUG: handleEditField - typeof value:', typeof value);
+    setEditOrder((prev: any) => {
+      const newState = { ...prev, [field]: value };
+      console.log('DEBUG: handleEditField - newState:', newState);
+      return newState;
+    });
   };
 
   const handleEditItemField = (idx: number, field: string, value: any) => {
     setEditOrder((prev: any) => {
       const items = [...prev.items];
       items[idx] = { ...items[idx], [field]: value };
+      
       // ถ้าเปลี่ยน sellerId ต้องอัปเดต sellerName ด้วย
       if (field === 'sellerId') {
         const seller = sellers.find((s: any) => s.id === value);
-        items[idx].sellerName = seller ? seller.name : '';
+        items[idx].sellerName = seller ? seller.name : null;
       }
+      
       // อัปเดตราคารวมของแต่ละรายการ
-      items[idx].totalPrice = items[idx].currentPrice * items[idx].currentQuantity;
-      return { ...prev, items, totalAmount: items.reduce((sum, i) => sum + i.totalPrice, 0) };
+      const currentPrice = Number(items[idx].currentPrice) || Number(items[idx].price) || 0;
+      const currentQuantity = Number(items[idx].currentQuantity) || Number(items[idx].qty) || 0;
+      items[idx].totalPrice = currentPrice * currentQuantity;
+      
+      // อัปเดตยอดรวมทั้งหมด
+      const totalAmount = items.reduce((sum, i) => sum + (i.totalPrice || 0), 0);
+      
+      console.log('DEBUG: handleEditItemField - field:', field, 'value:', value);
+      console.log('DEBUG: handleEditItemField - currentPrice:', currentPrice, 'currentQuantity:', currentQuantity);
+      console.log('DEBUG: handleEditItemField - totalPrice:', items[idx].totalPrice);
+      
+      return { ...prev, items, totalAmount };
     });
   };
 
   const handleSaveEdit = async () => {
-    // คำนวณยอดรวมใหม่
-    const total = editOrder.items.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
-    const payload = { ...editOrder, total };
-    await purchaseOrderAPI.update(editOrder.id, payload);
-    const newOrders = await refreshOrders();
-    const updated = newOrders.find(o => o.id === editOrder.id);
-    setSelectedOrder(updated || editOrder);
-    setEditMode(false);
-    setShowDialog(false);
+    try {
+      console.log('DEBUG: handleSaveEdit - editOrder:', editOrder);
+      
+      // คำนวณยอดรวมใหม่
+      const total = editOrder.items.reduce((sum, item) => {
+        const currentPrice = Number(item.currentPrice) || Number(item.price) || 0;
+        const currentQuantity = Number(item.currentQuantity) || Number(item.qty) || 0;
+        const itemTotal = currentPrice * currentQuantity;
+        console.log('DEBUG: handleSaveEdit - item calculation:', {
+          itemId: item.id,
+          currentPrice,
+          currentQuantity,
+          itemTotal
+        });
+        return sum + itemTotal;
+      }, 0);
+      
+      // หา sellername จาก sellerid
+      let sellername = editOrder.sellername;
+      if (!sellername && editOrder.sellerid && sellers.length > 0) {
+        const found = sellers.find((s: any) => String(s.id) === String(editOrder.sellerid));
+        sellername = found ? found.name : null;
+      }
+      
+      const payload = { 
+        ...editOrder, 
+        total,
+        sellerid: editOrder.sellerid,
+        sellername: sellername
+      };
+      
+      console.log('DEBUG: handleSaveEdit - payload:', payload);
+      console.log('DEBUG: handleSaveEdit - sellerid:', payload.sellerid);
+      console.log('DEBUG: handleSaveEdit - sellername:', payload.sellername);
+      console.log('DEBUG: handleSaveEdit - total:', total);
+      
+      const response = await purchaseOrderAPI.update(editOrder.id, payload);
+      console.log('DEBUG: handleSaveEdit - response:', response);
+      
+      if (response.success) {
+        toast.success('บันทึกการแก้ไขเรียบร้อย');
+        await refreshOrders();
+        setEditMode(false);
+        setShowDialog(false);
+      } else {
+        toast.error('เกิดข้อผิดพลาดในการบันทึก: ' + (response.error || 'ไม่ทราบสาเหตุ'));
+      }
+    } catch (error) {
+      console.error('DEBUG: handleSaveEdit - error:', error);
+      toast.error('เกิดข้อผิดพลาดในการบันทึก: ' + error.message);
+    }
   };
 
   // helper สำหรับแสดงชื่อผู้ขาย
@@ -638,6 +698,7 @@ const PurchaseOrderList = () => {
       currentPrice: item.currentPrice ?? item.price ?? prod?.price ?? 0,
       totalPrice: item.totalPrice ?? ((item.currentPrice ?? item.price ?? prod?.price ?? 0) * (item.currentQuantity ?? item.qty ?? 0)),
       lotCode: item.lotCode || item.lotcode || prod?.lotCode || '-',
+      sellerName: prod?.seller || prod?.sellername || item.seller || item.sellername || '-',
     };
     
     console.log('DEBUG: enrichItem - enriched result:', enriched);
@@ -848,7 +909,6 @@ const PurchaseOrderList = () => {
                       <TableHead>จำนวน</TableHead>
                       <TableHead>ราคา/หน่วย</TableHead>
                       <TableHead>ราคารวม</TableHead>
-                      <TableHead>ผู้ขาย</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -859,47 +919,81 @@ const PurchaseOrderList = () => {
                           <TableCell>{enriched.name}</TableCell>
                           <TableCell>
                             {editMode ? (
-                              <input type="number" min={1} value={enriched.currentQuantity} onChange={e => handleEditItemField(idx, 'currentQuantity', parseInt(e.target.value) || 1)} className="w-16 border rounded px-1" />
+                              <input 
+                                type="number" 
+                                min={1} 
+                                value={enriched.currentQuantity} 
+                                onChange={e => {
+                                  console.log('DEBUG: quantity input changed - idx:', idx, 'value:', e.target.value);
+                                  handleEditItemField(idx, 'qty', parseInt(e.target.value) || 1);
+                                }} 
+                                className="w-16 border rounded px-1" 
+                              />
                             ) : enriched.currentQuantity}
                           </TableCell>
                           <TableCell>
                             {editMode ? (
-                              <input type="number" min={0} step={0.01} value={enriched.currentPrice} onChange={e => handleEditItemField(idx, 'currentPrice', parseFloat(e.target.value) || 0)} className="w-20 border rounded px-1" />
-                            ) : `฿${enriched.currentPrice?.toFixed(2)}`}
-                          </TableCell>
-                          <TableCell>฿{enriched.totalPrice?.toFixed(2) || (enriched.currentPrice * enriched.currentQuantity).toFixed(2)}</TableCell>
-                          <TableCell>
-                            {editMode ? (
-                              <select
-                                className="w-32 border rounded px-1"
-                                value={enriched.sellerId || ''}
+                              <input 
+                                type="number" 
+                                min={0} 
+                                step={0.01} 
+                                value={enriched.currentPrice} 
                                 onChange={e => {
-                                  const sellerId = e.target.value;
-                                  const seller = sellers.find(s => s.id === sellerId);
-                                  handleEditItemField(idx, 'sellerId', sellerId);
-                                  handleEditItemField(idx, 'sellerName', seller ? seller.name : '');
-                                }}
-                              >
-                                {sellers.map(seller => (
-                                  <option key={seller.id} value={seller.id}>{seller.name}</option>
-                                ))}
-                              </select>
-                            ) : (
-                              getSellerName(enriched)
-                            )}
+                                  console.log('DEBUG: price input changed - idx:', idx, 'value:', e.target.value);
+                                  handleEditItemField(idx, 'price', parseFloat(e.target.value) || 0);
+                                }} 
+                                className="w-20 border rounded px-1" 
+                              />
+                            ) : `฿${(Number(enriched.currentPrice) || 0).toFixed(2)}`}
                           </TableCell>
+                          <TableCell>฿{(Number(enriched.totalPrice) || (Number(enriched.currentPrice) * Number(enriched.currentQuantity)) || 0).toFixed(2)}</TableCell>
                         </TableRow>
                       );
                     })}
                   </TableBody>
                 </Table>
               </div>
-              <div className="text-right font-bold text-lg">
-                ยอดรวม: ฿{(
-                  (editMode ? editOrder.totalAmount : selectedOrder.totalAmount) ??
-                  (editMode ? editOrder.total : selectedOrder.total) ??
-                  0
-                ).toFixed(2)}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">ผู้ขาย:</label>
+                  {editMode ? (
+                    <select
+                      className="w-full border rounded px-2 py-1"
+                      value={editOrder.sellerid || ''}
+                      onChange={e => {
+                        const sellerId = e.target.value;
+                        const seller = sellers.find(s => s.id === sellerId);
+                        console.log('DEBUG: seller selection - sellerId:', sellerId);
+                        console.log('DEBUG: seller selection - seller:', seller);
+                        console.log('DEBUG: seller selection - seller.name:', seller ? seller.name : '');
+                        console.log('DEBUG: seller selection - sellers array:', sellers);
+                        console.log('DEBUG: seller selection - e.target.value:', e.target.value);
+                        console.log('DEBUG: seller selection - typeof sellerId:', typeof sellerId);
+                        handleEditField('sellerid', sellerId);
+                        handleEditField('sellername', seller ? seller.name : null);
+                      }}
+                    >
+                      <option value="">เลือกผู้ขาย</option>
+                      {sellers.map(seller => (
+                        <option key={seller.id} value={seller.id}>{seller.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="bg-gray-50 p-2 rounded text-sm text-gray-700 min-h-[32px]">
+                      {selectedOrder.sellername || getSellerName(selectedOrder) || '-'}
+                    </div>
+                  )}
+                </div>
+                <div className="text-right">
+                  <label className="block text-sm font-medium mb-1">ยอดรวม:</label>
+                  <div className="text-lg font-bold">
+                    ฿{(
+                      (editMode ? editOrder.totalAmount : selectedOrder.totalAmount) ??
+                      (editMode ? editOrder.total : selectedOrder.total) ??
+                      0
+                    ).toFixed(2)}
+                  </div>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">หมายเหตุ:</label>
