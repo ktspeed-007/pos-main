@@ -241,7 +241,13 @@ const StockAlerts = () => {
   // ฟังก์ชันหา PO ล่าสุดของสินค้าแต่ละตัว (เช็คตาม productId + lotCode)
   const getLatestPOStatus = (productId: string, lotCode: string) => {
     // ใช้ purchaseOrders จาก backend
-    const relatedPOs = purchaseOrders.filter((po: any) => Array.isArray(po.items) && po.items.some((item: any) => (item.productId === productId || item.id === productId) && item.lotCode === lotCode));
+    const relatedPOs = purchaseOrders.filter((po: any) => 
+      Array.isArray(po.items) && po.items.some((item: any) => 
+        (item.productId === productId || item.id === productId || item.product_id === productId) && 
+        (item.lotCode === lotCode || item.lotcode === lotCode)
+      )
+    );
+    
     if (relatedPOs.length === 0) return 'draft';
     // ถ้ามี PO ที่ received หรือ partial_received ให้แสดงสถานะนั้นก่อน
     const receivedPO = relatedPOs.find((po: any) => po.status === 'received' || po.status === 'partial_received');
@@ -281,7 +287,8 @@ const StockAlerts = () => {
   const getLatestPONumber = (productId: string, lotCode: string) => {
     const relatedPOs = purchaseOrders.filter((po: any) => 
       Array.isArray(po.items) && po.items.some((item: any) => 
-        (item.productId === productId || item.id === productId) && item.lotCode === lotCode
+        (item.productId === productId || item.id === productId || item.product_id === productId) && 
+        (item.lotCode === lotCode || item.lotcode === lotCode)
       )
     );
     
