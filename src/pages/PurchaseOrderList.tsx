@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Dialog as UIDialog, DialogContent as UIDialogContent, DialogHeader as UIDialogHeader, DialogTitle as UIDialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Printer, Check, X, Edit } from 'lucide-react';
 import { purchaseOrderAPI } from '@/services/api/purchaseOrderAPI';
@@ -43,8 +43,6 @@ const PurchaseOrderList = () => {
   const [products, setProducts] = useState<any[]>([]); // preload products list
   const [orders, setOrders] = useState<any[]>([]);
   const [search, setSearch] = useState('');
-  const [selectedOrder, setSelectedOrder] = useState<any>(null);
-  const [showDialog, setShowDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editOrder, setEditOrder] = useState<any>(null);
   const [sellers, setSellers] = useState<any[]>([]);
@@ -131,15 +129,9 @@ const PurchaseOrderList = () => {
         else setUsers([]);
       })
       .catch(() => setUsers([]));
-  }, [showDialog]);
+  }, []);
 
-  useEffect(() => {
-    if (showDialog && (editMode ? editOrder : selectedOrder)) {
-      console.log('DEBUG selectedOrder:', editMode ? editOrder : selectedOrder);
-      console.log('DEBUG items:', (editMode ? editOrder : selectedOrder)?.items);
-      console.log('DEBUG products:', products);
-    }
-  }, [showDialog, editMode, editOrder, selectedOrder, products]);
+
 
   const filteredOrders = orders.filter(order => {
     const q = search.toLowerCase();
@@ -229,7 +221,7 @@ const PurchaseOrderList = () => {
             <strong>ผู้ขาย:</strong> ${sellerDisplay}
           </div>
           <div>
-            <strong>สถานะ:</strong> ${(order.status === 'draft' ? 'ร่าง' : order.status === 'pending' ? 'รอดำเนินการ' : order.status === 'approved' ? 'อนุมัติแล้ว' : order.status === 'cancelled' ? 'ยกเลิก' : order.status === 'received' ? 'รับของแล้ว' : order.status)}
+            <strong>สถานะ:</strong> ${(order.status === 'draft' ? 'ร่าง' : order.status === 'pending' ? 'รอดำเนินการ' : order.status === 'approved' ? 'อนุมัติแล้ว' : order.status === 'cancelled' ? 'ยกเลิก' : order.status === 'received' ? 'รับของแล้ว' : order.status === 'partial_received' ? 'รับบางส่วน' : order.status)}
             ${order.status === 'approved' && order.updated_at ? `<br><small>อนุมัติเมื่อ: ${new Date(order.updated_at).toLocaleString('th-TH')}<br>โดย: ${getUserName(order.createdBy)}</small>` : ''}
             ${order.status === 'received' && order.received_at ? `<br><small>รับของเมื่อ: ${new Date(order.received_at).toLocaleString('th-TH')}<br>โดย: ${getUserName(order.createdBy)}</small>` : ''}
             ${order.status === 'cancelled' && order.updated_at ? `<br><small>ยกเลิกเมื่อ: ${new Date(order.updated_at).toLocaleString('th-TH')}<br>โดย: ${getUserName(order.createdBy)}</small>` : ''}
@@ -242,7 +234,8 @@ const PurchaseOrderList = () => {
               <th>รหัสสินค้า</th>
               <th>Lot</th>
               <th>ชื่อสินค้า</th>
-              <th>จำนวน</th>
+              <th>สั่งซื้อ</th>
+              <th>รับ</th>
               <th>ราคาต่อหน่วย</th>
               <th>ราคารวม</th>
             </tr>
@@ -255,6 +248,7 @@ const PurchaseOrderList = () => {
                 <td>${item.lotCode || '-'}</td>
                 <td>${item.name || '-'}</td>
                 <td>${item.currentQuantity || '-'}</td>
+                <td>${item.receivedQuantity || '-'}</td>
                 <td>฿${(Number(item.currentPrice) || 0).toFixed(2)}</td>
                 <td>฿${(Number(item.totalPrice) || 0).toFixed(2)}</td>
               </tr>
@@ -379,7 +373,6 @@ const PurchaseOrderList = () => {
   const handleCancel = async (order: any, note?: string) => {
     await purchaseOrderAPI.update(order.id, { ...order, status: 'cancelled', notes: note !== undefined ? note : order.notes });
     await refreshOrders();
-    if (selectedOrder && selectedOrder.id === order.id) setSelectedOrder({ ...order, status: 'cancelled', notes: note !== undefined ? note : order.notes });
     toast.success('ยกเลิกใบขอซื้อเรียบร้อยแล้ว');
   };
 
@@ -441,8 +434,6 @@ const PurchaseOrderList = () => {
   const handleEdit = (order: any) => {
     setEditOrder(JSON.parse(JSON.stringify(order)));
     setEditMode(true);
-    setSelectedOrder(order);
-    setShowDialog(true);
   };
 
   const handleEditField = (field: string, value: any) => {
@@ -525,8 +516,7 @@ const PurchaseOrderList = () => {
       if (response.success) {
         toast.success('บันทึกการแก้ไขเรียบร้อย');
         await refreshOrders();
-    setEditMode(false);
-    setShowDialog(false);
+            setEditMode(false);
       } else {
         toast.error('เกิดข้อผิดพลาดในการบันทึก: ' + (response.error || 'ไม่ทราบสาเหตุ'));
       }
@@ -550,8 +540,8 @@ const PurchaseOrderList = () => {
   // เพิ่ม helper สำหรับแสดงชื่อผู้ใช้ที่ยกเลิก
   const getCancelledBy = (order: any) => {
     if (order.cancelledBy) return order.cancelledBy;
-    // fallback: ถ้าไม่มีฟิลด์นี้ ให้ใช้ผู้สร้าง (createdBy) หรือ '-'
-    return order.createdBy || '-';
+    // fallback: ถ้าไม่มีฟิลด์นี้ ให้ใช้ผู้สร้าง (createdby) หรือ '-'
+    return order.createdby || '-';
   };
 
   const getStatusBadge = (status: string) => {
@@ -697,6 +687,7 @@ const PurchaseOrderList = () => {
       name: item.name || prod?.name || '-',
       productCode: item.productCode || item.productcode || prod?.productCode || '-',
       currentQuantity: item.currentQuantity ?? item.qty ?? 0,
+      receivedQuantity: item.received_qty ?? item.receivedQty ?? 0,
       currentPrice: item.currentPrice ?? item.price ?? prod?.price ?? 0,
       totalPrice: item.totalPrice ?? ((item.currentPrice ?? item.price ?? prod?.price ?? 0) * (item.currentQuantity ?? item.qty ?? 0)),
       lotCode: item.lotCode || item.lotcode || prod?.lotCode || '-',
@@ -732,14 +723,13 @@ const PurchaseOrderList = () => {
                   <TableHead>สถานะ</TableHead>
                   <TableHead>ที่มา</TableHead>
                   <TableHead>ยอดรวม</TableHead>
-                  <TableHead>ดูรายละเอียด</TableHead>
                   <TableHead>ดำเนินการ</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredOrders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={7} className="text-center py-8 text-gray-500">
                       ไม่พบใบขอซื้อ
                     </TableCell>
                   </TableRow>
@@ -770,26 +760,6 @@ const PurchaseOrderList = () => {
                         )}
                       </TableCell>
                       <TableCell>฿{order.totalAmount?.toFixed(2) || '-'}</TableCell>
-                      <TableCell>
-                        <Button size="sm" variant="outline" onClick={async () => {
-                          console.log('DEBUG: Opening PO details for order:', order.id);
-                          // ดึงข้อมูล PO รายตัวจาก API เพื่อให้แน่ใจว่า items ครบ
-                          const res = await purchaseOrderAPI.getById(order.id);
-                          console.log('DEBUG: API response:', res);
-                          if (res.success && res.data) {
-                            console.log('DEBUG: Setting selectedOrder with API data:', res.data);
-                            setSelectedOrder(res.data);
-                          } else {
-                            console.log('DEBUG: Using fallback order data:', order);
-                            setSelectedOrder(order); // fallback
-                          }
-                          setEditMode(false);
-                          setEditOrder(null);
-                          setShowDialog(true);
-                        }}>
-                          ดูรายละเอียด
-                        </Button>
-                      </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
                           <Button size="sm" variant="outline" onClick={() => handlePrint(order)} title="พิมพ์ใบขอซื้อ">
@@ -855,202 +825,20 @@ const PurchaseOrderList = () => {
         </CardContent>
       </Card>
 
-      {/* Dialog แสดงรายละเอียดใบขอซื้อ */}
-      <UIDialog open={showDialog} onOpenChange={(v) => { setShowDialog(v); setEditMode(false); setEditOrder(null); }}>
-        <UIDialogContent className="max-w-2xl w-full">
-          <UIDialogHeader>
-            <UIDialogTitle>รายละเอียดใบขอซื้อ</UIDialogTitle>
-          </UIDialogHeader>
-          {(editMode ? editOrder : selectedOrder) && (
-            (() => {
-              console.log('DEBUG selectedOrder:', editMode ? editOrder : selectedOrder);
-              console.log('DEBUG items:', (editMode ? editOrder : selectedOrder)?.items);
-              console.log('DEBUG products:', products);
-              console.log('DEBUG items length:', (editMode ? editOrder : selectedOrder)?.items?.length);
-              console.log('DEBUG items type:', typeof (editMode ? editOrder : selectedOrder)?.items);
-              return null;
-            })()
-          )}
-          {(editMode ? editOrder : selectedOrder) && (
-            <div className="space-y-4 print:block">
-              {(() => {
-                const order = editMode ? editOrder : selectedOrder;
-                console.log('DEBUG: Rendering order details:', order);
-                console.log('DEBUG: Order ID:', order?.id);
-                console.log('DEBUG: Order items:', order?.items);
-                return null;
-              })()}
-              <div className="flex justify-between items-center">
-                <div>
-                  <div className="font-bold text-lg">เลขที่: {(editMode ? editOrder : selectedOrder).id}</div>
-                  <div>วันที่: {(editMode ? editOrder : selectedOrder).createdAt ? new Date((editMode ? editOrder : selectedOrder).createdAt).toLocaleDateString('th-TH') : '-'}</div>
-                  <div>ผู้สร้าง: {(editMode ? editOrder : selectedOrder).createdBy || '-'}</div>
-                  <div>สถานะ: {getStatusBadge((editMode ? editOrder : selectedOrder).status)}</div>
-                  {(editMode ? editOrder : selectedOrder).status === 'cancelled' && (
-                    <div className="mt-2 text-sm text-red-700">
-                      <div>ยกเลิกโดย: {getCancelledBy(editMode ? editOrder : selectedOrder)}</div>
-                      {((editMode ? editOrder : selectedOrder).notes || '').trim() && (
-                        <div>หมายเหตุ: {(editMode ? editOrder : selectedOrder).notes}</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => handlePrint(editMode ? editOrder : selectedOrder)}>
-                    <Printer className="h-4 w-4 mr-1" /> พิมพ์
-                  </Button>
-                  {(editMode ? editOrder : selectedOrder).status !== 'approved' && (editMode ? editOrder : selectedOrder).status !== 'cancelled' && !editMode && (
-                    <Button size="sm" className="bg-green-500 hover:bg-green-600 text-white" onClick={() => handleApprove(selectedOrder)}>
-                      <Check className="h-4 w-4 mr-1" /> อนุมัติ
-                    </Button>
-                  )}
-                  {(editMode ? editOrder : selectedOrder).status !== 'approved' && (editMode ? editOrder : selectedOrder).status !== 'cancelled' && !editMode && (
-                    <Button size="sm" variant="outline" onClick={() => { setEditOrder(JSON.parse(JSON.stringify(selectedOrder))); setEditMode(true); }}>
-                      <Edit className="h-4 w-4 mr-1" /> แก้ไข
-                    </Button>
-                  )}
-                  {editMode && (
-                    <Button size="sm" className="bg-blue-500 hover:bg-blue-600 text-white" onClick={handleSaveEdit}>
-                      บันทึก
-                    </Button>
-                  )}
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ชื่อสินค้า</TableHead>
-                      <TableHead>จำนวน</TableHead>
-                      <TableHead>ราคา/หน่วย</TableHead>
-                      <TableHead>ราคารวม</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(() => {
-                      const items = editMode ? editOrder.items : selectedOrder.items;
-                      console.log('DEBUG: Rendering items:', items);
-                      console.log('DEBUG: Items is array:', Array.isArray(items));
-                      
-                      if (!items || !Array.isArray(items) || items.length === 0) {
-                        return (
-                          <TableRow>
-                            <TableCell colSpan={4} className="text-center py-4 text-gray-500">
-                              ไม่พบรายการสินค้า
-                            </TableCell>
-                          </TableRow>
-                        );
-                      }
-                      
-                      return items.map((item: any, idx: number) => {
-                        const enriched = enrichItem(item);
-                        return (
-                          <TableRow key={enriched.id || enriched.product_id || idx}>
-                            <TableCell>{enriched.name}</TableCell>
-                          <TableCell>
-                            {editMode ? (
-                                <input 
-                                  type="number" 
-                                  min={1} 
-                                  value={enriched.currentQuantity} 
-                                  onChange={e => {
-                                    console.log('DEBUG: quantity input changed - idx:', idx, 'value:', e.target.value);
-                                    handleEditItemField(idx, 'qty', parseInt(e.target.value) || 1);
-                                  }} 
-                                  className="w-16 border rounded px-1" 
-                                />
-                              ) : enriched.currentQuantity}
-                          </TableCell>
-                          <TableCell>
-                            {editMode ? (
-                                <input 
-                                  type="number" 
-                                  min={0} 
-                                  step={0.01} 
-                                  value={enriched.currentPrice} 
-                                  onChange={e => {
-                                    console.log('DEBUG: price input changed - idx:', idx, 'value:', e.target.value);
-                                    handleEditItemField(idx, 'price', parseFloat(e.target.value) || 0);
-                                  }} 
-                                  className="w-20 border rounded px-1" 
-                                />
-                              ) : `฿${(Number(enriched.currentPrice) || 0).toFixed(2)}`}
-                          </TableCell>
-                            <TableCell>฿{(Number(enriched.totalPrice) || (Number(enriched.currentPrice) * Number(enriched.currentQuantity)) || 0).toFixed(2)}</TableCell>
-                          </TableRow>
-                        );
-                      });
-                    })()}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">ผู้ขาย:</label>
-                          {editMode ? (
-                            <select
-                      className="w-full border rounded px-2 py-1"
-                      value={editOrder.sellerid || ''}
-                              onChange={e => {
-                                const sellerId = e.target.value;
-                                const seller = sellers.find(s => s.id === sellerId);
-                        console.log('DEBUG: seller selection - sellerId:', sellerId);
-                        console.log('DEBUG: seller selection - seller:', seller);
-                        console.log('DEBUG: seller selection - seller.name:', seller ? seller.name : '');
-                        console.log('DEBUG: seller selection - sellers array:', sellers);
-                        console.log('DEBUG: seller selection - e.target.value:', e.target.value);
-                        console.log('DEBUG: seller selection - typeof sellerId:', typeof sellerId);
-                        handleEditField('sellerid', sellerId);
-                        handleEditField('sellername', seller ? seller.name : null);
-                              }}
-                            >
-                              <option value="">เลือกผู้ขาย</option>
-                              {sellers.map(seller => (
-                                <option key={seller.id} value={seller.id}>{seller.name}</option>
-                              ))}
-                            </select>
-                          ) : (
-                    <div className="bg-gray-50 p-2 rounded text-sm text-gray-700 min-h-[32px]">
-                      {selectedOrder.sellername || getSellerName(selectedOrder) || '-'}
-                    </div>
-                  )}
-                </div>
-                <div className="text-right">
-                  <label className="block text-sm font-medium mb-1">ยอดรวม:</label>
-                  <div className="text-lg font-bold">
-                    ฿{(
-                      (editMode ? editOrder.totalAmount : selectedOrder.totalAmount) ??
-                      (editMode ? editOrder.total : selectedOrder.total) ??
-                      0
-                    ).toFixed(2)}
-                  </div>
-              </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">หมายเหตุ:</label>
-                {editMode ? (
-                  <textarea className="w-full border rounded px-2 py-1" value={editOrder.notes} onChange={e => handleEditField('notes', e.target.value)} />
-                ) : (
-                  <div className="bg-gray-50 p-2 rounded text-sm text-gray-700 min-h-[32px]">{selectedOrder.notes || '-'}</div>
-                )}
-              </div>
-            </div>
-          )}
-        </UIDialogContent>
-      </UIDialog>
+      
 
       {/* Dialog รับของ */}
-      <UIDialog open={showReceiveDialog} onOpenChange={(open) => {
+      <Dialog open={showReceiveDialog} onOpenChange={(open) => {
         setShowReceiveDialog(open);
         if (!open) {
           setReceiveOrder(null);
           setReceiveItems([]);
         }
       }}>
-        <UIDialogContent className="max-w-4xl w-full">
-          <UIDialogHeader>
-            <UIDialogTitle>รับของเข้า - {receiveOrder?.id}</UIDialogTitle>
-          </UIDialogHeader>
+        <DialogContent className="max-w-4xl w-full">
+          <DialogHeader>
+            <DialogTitle>รับของเข้า - {receiveOrder?.id}</DialogTitle>
+          </DialogHeader>
           {receiveOrder && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
@@ -1149,21 +937,21 @@ const PurchaseOrderList = () => {
               </div>
             </div>
           )}
-        </UIDialogContent>
-      </UIDialog>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog ยกเลิกใบขอซื้อ */}
-      <UIDialog open={showCancelDialog} onOpenChange={(open) => {
+      <Dialog open={showCancelDialog} onOpenChange={(open) => {
         setShowCancelDialog(open);
         if (!open) {
           setCancelNote('');
           setCancelOrder(null);
         }
       }}>
-        <UIDialogContent className="max-w-md w-full">
-          <UIDialogHeader>
-            <UIDialogTitle>ยกเลิกใบขอซื้อ</UIDialogTitle>
-          </UIDialogHeader>
+        <DialogContent className="max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle>ยกเลิกใบขอซื้อ</DialogTitle>
+          </DialogHeader>
           <div className="space-y-4">
             <div>กรุณาระบุหมายเหตุการยกเลิกใบขอซื้อ</div>
             <textarea
@@ -1188,8 +976,8 @@ const PurchaseOrderList = () => {
               }}>ยืนยันยกเลิก</Button>
             </div>
           </div>
-        </UIDialogContent>
-      </UIDialog>
+        </DialogContent>
+      </Dialog>
 
       {/* Password Dialog สำหรับ Admin */}
       <AlertDialog open={showPasswordDialog}>

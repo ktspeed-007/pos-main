@@ -163,6 +163,7 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
       // Calculate totals
       const updatedItems = items.map(item => ({
         ...item,
+        receivedQuantity: 0, // เริ่มต้นเป็น 0 เพราะยังไม่มีการรับของ
         totalPrice: item.currentPrice * item.currentQuantity,
         priceDifference: (item.currentPrice - item.originalPrice) * item.currentQuantity
       }));
@@ -525,7 +526,7 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
             <strong>ผู้ขาย:</strong> ${sellerDisplay}
           </div>
           <div>
-            <strong>สถานะ:</strong> ${getStatusText(status)}
+            <strong>สถานะ:</strong> ${getStatusText(purchaseOrder?.status || status)}
           </div>
         </div>
         
@@ -535,7 +536,8 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
               <th>ลำดับ</th>
               <th>รหัสสินค้า</th>
               <th>ชื่อสินค้า</th>
-              <th>จำนวน</th>
+              <th>สั่งซื้อ</th>
+              <th>รับ</th>
               <th>ราคาต่อหน่วย</th>
               <th>ราคารวม</th>
             </tr>
@@ -547,6 +549,7 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
                 <td>${item.productCode}</td>
                 <td>${item.name}</td>
                 <td>${item.currentQuantity}</td>
+                <td>${item.receivedQuantity || '-'}</td>
                 <td>฿${item.currentPrice.toFixed(2)}</td>
                 <td>฿${item.totalPrice.toFixed(2)}</td>
               </tr>
@@ -591,6 +594,8 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
       case 'pending': return 'รอดำเนินการ';
       case 'approved': return 'อนุมัติแล้ว';
       case 'cancelled': return 'ยกเลิก';
+      case 'received': return 'รับของแล้ว';
+      case 'partial_received': return 'รับบางส่วน';
       default: return status;
     }
   };
@@ -600,14 +605,18 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
       draft: 'secondary',
       pending: 'default',
       approved: 'default',
-      cancelled: 'destructive'
+      cancelled: 'destructive',
+      received: 'default',
+      partial_received: 'secondary'
     } as const;
 
     const labels = {
       draft: 'ร่าง',
       pending: 'รอดำเนินการ',
       approved: 'อนุมัติแล้ว',
-      cancelled: 'ยกเลิก'
+      cancelled: 'ยกเลิก',
+      received: 'รับของแล้ว',
+      partial_received: 'รับบางส่วน'
     };
 
     return <Badge variant={variants[status as keyof typeof variants]}>{labels[status as keyof typeof labels]}</Badge>;
