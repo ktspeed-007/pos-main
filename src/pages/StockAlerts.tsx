@@ -207,9 +207,8 @@ const StockAlerts = () => {
     ].map(product => ({
       ...product,
       originalPrice: product.price,
-      currentPrice: product.price,
       originalQuantity: product.stock,
-      currentQuantity: 1,
+      currentQuantity: calculateRecommendedOrder(product), // ใช้จำนวนที่ระบบแนะนำสั่งซื้อ
       sellerId: product.sellerId || '',
       sellerName: product.seller || '',
       paymentMethod: 'cash',
@@ -224,7 +223,7 @@ const StockAlerts = () => {
         originalPrice: product.price,
         currentPrice: product.price,
         originalQuantity: product.stock,
-        currentQuantity: 1,
+        currentQuantity: calculateRecommendedOrder(product), // ใช้จำนวนที่ระบบแนะนำสั่งซื้อ
         sellerId: product.sellerId || '',
         sellerName: product.seller || '',
         paymentMethod: 'cash',

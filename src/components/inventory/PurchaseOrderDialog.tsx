@@ -436,45 +436,49 @@ const PurchaseOrderDialog = ({ open, onClose, products }: PurchaseOrderDialogPro
   };
 
   const handleCancel = async () => {
+    // ถ้าเป็นใบขอซื้อใหม่ที่ยังไม่ได้บันทึก (ไม่มี purchaseOrder.id) ให้ปิด dialog เลย
+    if (!purchaseOrder?.id) {
+      onClose();
+      return;
+    }
+
     setStatus('cancelled');
-    if (purchaseOrder) {
-      // ใช้ paymentMethod จาก purchaseOrder แทนที่จะใช้ state
-      const currentPaymentMethod = purchaseOrder.paymentMethod || paymentMethod;
-      const paymentMethodString = typeof currentPaymentMethod === 'string' 
-        ? currentPaymentMethod 
-        : JSON.stringify(currentPaymentMethod);
-      
-      const payload = {
-        total: purchaseOrder.totalAmount,
-        status: 'cancelled' as const,
-        notes,
-        paymentmethod: paymentMethodString,
-        sellerid: purchaseOrder.sellerId || null,
-        sellername: purchaseOrder.sellerName || null,
-        creditdays: currentPaymentMethod === 'credit' ? purchaseOrder.creditDays : null,
-        duedate: currentPaymentMethod === 'credit' ? purchaseOrder.dueDate : null,
-        expecteddeliverydate: purchaseOrder.expectedDeliveryDate || null,
-        createdby: user?.username || 'unknown',
-      };
-      const res = await purchaseOrderAPI.update(purchaseOrder.id, payload);
-      if (res.success && res.data) {
-        const { status, createdBy, notes, ...restData } = res.data;
-        setPurchaseOrder({
-          ...restData,
-          totalAmount: Number(res.data.total ?? 0),
-          createdAt: res.data.created_at,
-          updatedAt: res.data.updated_at,
-          status: (['draft','pending','approved','cancelled'].includes(status) ? status : 'draft') as 'draft' | 'pending' | 'approved' | 'cancelled',
-          createdBy: createdBy || user?.username || 'unknown',
-          notes: notes ?? '',
-        });
-        toast.success('ยกเลิกใบขอซื้อเรียบร้อยแล้ว');
-        // ส่ง event เพื่อรีเฟรชข้อมูลในหน้าอื่นๆ
-        window.dispatchEvent(new CustomEvent('refreshProducts'));
-        onClose();
-      } else {
-        toast.error('เกิดข้อผิดพลาดในการยกเลิกใบขอซื้อ');
-      }
+    // ใช้ paymentMethod จาก purchaseOrder แทนที่จะใช้ state
+    const currentPaymentMethod = purchaseOrder.paymentMethod || paymentMethod;
+    const paymentMethodString = typeof currentPaymentMethod === 'string' 
+      ? currentPaymentMethod 
+      : JSON.stringify(currentPaymentMethod);
+    
+    const payload = {
+      total: purchaseOrder.totalAmount,
+      status: 'cancelled' as const,
+      notes,
+      paymentmethod: paymentMethodString,
+      sellerid: purchaseOrder.sellerId || null,
+      sellername: purchaseOrder.sellerName || null,
+      creditdays: currentPaymentMethod === 'credit' ? purchaseOrder.creditDays : null,
+      duedate: currentPaymentMethod === 'credit' ? purchaseOrder.dueDate : null,
+      expecteddeliverydate: purchaseOrder.expectedDeliveryDate || null,
+      createdby: user?.username || 'unknown',
+    };
+    const res = await purchaseOrderAPI.update(purchaseOrder.id, payload);
+    if (res.success && res.data) {
+      const { status, createdBy, notes, ...restData } = res.data;
+      setPurchaseOrder({
+        ...restData,
+        totalAmount: Number(res.data.total ?? 0),
+        createdAt: res.data.created_at,
+        updatedAt: res.data.updated_at,
+        status: (['draft','pending','approved','cancelled'].includes(status) ? status : 'draft') as 'draft' | 'pending' | 'approved' | 'cancelled',
+        createdBy: createdBy || user?.username || 'unknown',
+        notes: notes ?? '',
+      });
+      toast.success('ยกเลิกใบขอซื้อเรียบร้อยแล้ว');
+      // ส่ง event เพื่อรีเฟรชข้อมูลในหน้าอื่นๆ
+      window.dispatchEvent(new CustomEvent('refreshProducts'));
+      onClose();
+    } else {
+      toast.error('เกิดข้อผิดพลาดในการยกเลิกใบขอซื้อ');
     }
     addLog('purchase_order', user?.username || 'unknown', `Cancelled purchase order: ${poNumber}`);
   };

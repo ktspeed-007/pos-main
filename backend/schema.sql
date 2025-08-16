@@ -131,6 +131,7 @@ CREATE TABLE purchase_order_items (
     product_id UUID REFERENCES products(id),
     qty INTEGER NOT NULL,
     received_qty INTEGER DEFAULT 0,
+    received_notes TEXT,
     received_at TIMESTAMP,
     lotCode VARCHAR(50),
     expiryDate DATE,
@@ -141,6 +142,9 @@ CREATE TABLE purchase_order_items (
 -- Grant permissions to posuser
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO posuser;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO posuser;
+
+-- Add missing columns to existing tables (for existing databases)
+ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS received_notes TEXT;
 
 -- Insert initial data
 INSERT INTO users (username, name, password, role, active) VALUES

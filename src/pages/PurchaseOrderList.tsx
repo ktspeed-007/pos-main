@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Printer, Check, X, Edit } from 'lucide-react';
 import { purchaseOrderAPI } from '@/services/api/purchaseOrderAPI';
@@ -53,15 +55,19 @@ const PurchaseOrderList = () => {
   const [cancelOrder, setCancelOrder] = useState<any>(null);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
-  const [passwordAction, setPasswordAction] = useState<'cancel' | 'approve' | null>(null);
+  const [passwordAction, setPasswordAction] = useState<'cancel' | 'approve' | 'edit-receive' | null>(null);
   // เพิ่ม state สำหรับ error
   const [isPasswordError, setIsPasswordError] = useState(false);
   const [pendingApproveOrder, setPendingApproveOrder] = useState<any>(null);
   const [pendingCancelOrder, setPendingCancelOrder] = useState<any>(null);
+  const [pendingEditReceiveOrder, setPendingEditReceiveOrder] = useState<any>(null);
   const [shopInfo, setShopInfo] = useState<any>(null);
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
   const [receiveOrder, setReceiveOrder] = useState<any>(null);
   const [receiveItems, setReceiveItems] = useState<any[]>([]);
+  const [showEditReceiveDialog, setShowEditReceiveDialog] = useState(false);
+  const [editReceiveOrder, setEditReceiveOrder] = useState<any>(null);
+  const [editReceiveItems, setEditReceiveItems] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
 
   // ฟังก์ชันแปลง username เป็นชื่อ
@@ -95,7 +101,18 @@ const PurchaseOrderList = () => {
     setAdminPassword('');
     setIsPasswordError(false);
     setPendingApproveOrder(null);
+    setPendingCancelOrder(null);
+    setPendingEditReceiveOrder(null);
   };
+
+  // Debug effect สำหรับ editOrder
+  useEffect(() => {
+    if (editOrder) {
+      console.log('DEBUG: editOrder in Dialog:', editOrder);
+      console.log('DEBUG: editOrder.sellerid:', editOrder.sellerid);
+      console.log('DEBUG: editOrder.items:', editOrder.items);
+    }
+  }, [editOrder]);
 
   useEffect(() => {
     refreshOrders();
@@ -418,6 +435,9 @@ const PurchaseOrderList = () => {
           setCancelOrder(pendingCancelOrder);
           setShowCancelDialog(true);
           setPendingCancelOrder(null);
+        } else if (passwordAction === 'edit-receive' && pendingEditReceiveOrder) {
+          handleOpenEditReceiveDialog(pendingEditReceiveOrder);
+          setPendingEditReceiveOrder(null);
         }
         setPasswordAction(null);
       } else {
@@ -432,8 +452,27 @@ const PurchaseOrderList = () => {
   };
 
   const handleEdit = (order: any) => {
-    setEditOrder(JSON.parse(JSON.stringify(order)));
+    console.log('DEBUG: handleEdit called with order:', order);
+    
+    // สร้าง enriched order ด้วยข้อมูลที่สมบูรณ์
+    const enrichedOrder = {
+      ...order,
+      items: order.items.map((item: any) => {
+        const enrichedItem = enrichItem(item);
+        return {
+          ...enrichedItem,
+          // ใช้ข้อมูลเดิมถ้ามี
+          currentQuantity: item.currentQuantity ?? item.qty ?? enrichedItem.currentQuantity,
+          currentPrice: item.currentPrice ?? item.price ?? enrichedItem.currentPrice,
+          totalPrice: item.totalPrice ?? enrichedItem.totalPrice,
+        };
+      })
+    };
+    
+    console.log('DEBUG: enrichedOrder created:', enrichedOrder);
+    setEditOrder(enrichedOrder);
     setEditMode(true);
+    console.log('DEBUG: editMode set to true');
   };
 
   const handleEditField = (field: string, value: any) => {
@@ -447,6 +486,7 @@ const PurchaseOrderList = () => {
   };
 
   const handleEditItemField = (idx: number, field: string, value: any) => {
+    console.log('DEBUG: handleEditItemField called - idx:', idx, 'field:', field, 'value:', value);
     setEditOrder((prev: any) => {
       const items = [...prev.items];
       items[idx] = { ...items[idx], [field]: value };
@@ -465,17 +505,38 @@ const PurchaseOrderList = () => {
       // อัปเดตยอดรวมทั้งหมด
       const totalAmount = items.reduce((sum, i) => sum + (i.totalPrice || 0), 0);
       
-      console.log('DEBUG: handleEditItemField - field:', field, 'value:', value);
+      console.log('DEBUG: handleEditItemField - updated item:', items[idx]);
       console.log('DEBUG: handleEditItemField - currentPrice:', currentPrice, 'currentQuantity:', currentQuantity);
       console.log('DEBUG: handleEditItemField - totalPrice:', items[idx].totalPrice);
+      console.log('DEBUG: handleEditItemField - totalAmount:', totalAmount);
       
-      return { ...prev, items, totalAmount };
+      const newState = { ...prev, items, totalAmount };
+      console.log('DEBUG: handleEditItemField - new state:', newState);
+      return newState;
     });
   };
 
   const handleSaveEdit = async () => {
     try {
       console.log('DEBUG: handleSaveEdit - editOrder:', editOrder);
+      
+      // เตรียมข้อมูล items ที่แก้ไขแล้ว
+      const updatedItems = editOrder.items.map((item: any) => {
+        const updatedItem = {
+          id: item.id,
+          qty: item.currentQuantity || item.qty,
+          price: item.currentPrice || item.price,
+          product_id: item.product_id || item.productId,
+          lotCode: item.lotCode || item.lotcode,
+          expiryDate: item.expiryDate || item.expirydate,
+          received_qty: item.received_qty || item.receivedQty || 0,
+          received_at: item.received_at || item.receivedAt,
+        };
+        console.log('DEBUG: updatedItem:', updatedItem);
+        return updatedItem;
+      });
+      
+      console.log('DEBUG: handleSaveEdit - updatedItems:', updatedItems);
       
       // คำนวณยอดรวมใหม่
       const total = editOrder.items.reduce((sum, item) => {
@@ -499,16 +560,18 @@ const PurchaseOrderList = () => {
       }
       
       const payload = { 
-        ...editOrder, 
-        total,
         sellerid: editOrder.sellerid,
-        sellername: sellername
+        sellername: sellername,
+        notes: editOrder.notes,
+        total: total,
+        items: updatedItems
       };
       
       console.log('DEBUG: handleSaveEdit - payload:', payload);
       console.log('DEBUG: handleSaveEdit - sellerid:', payload.sellerid);
       console.log('DEBUG: handleSaveEdit - sellername:', payload.sellername);
       console.log('DEBUG: handleSaveEdit - total:', total);
+      console.log('DEBUG: handleSaveEdit - items count:', updatedItems.length);
       
       const response = await purchaseOrderAPI.update(editOrder.id, payload);
       console.log('DEBUG: handleSaveEdit - response:', response);
@@ -516,7 +579,7 @@ const PurchaseOrderList = () => {
       if (response.success) {
         toast.success('บันทึกการแก้ไขเรียบร้อย');
         await refreshOrders();
-            setEditMode(false);
+        setEditMode(false);
       } else {
         toast.error('เกิดข้อผิดพลาดในการบันทึก: ' + (response.error || 'ไม่ทราบสาเหตุ'));
       }
@@ -594,6 +657,25 @@ const PurchaseOrderList = () => {
     setShowReceiveDialog(true);
   };
 
+  // ฟังก์ชันเปิด dialog แก้ไขการรับของ
+  const handleOpenEditReceiveDialog = (order: any) => {
+    console.log('DEBUG: handleOpenEditReceiveDialog called with order:', order);
+    setEditReceiveOrder(order);
+    // สร้าง editReceiveItems จาก order.items โดยใช้ received_qty ที่มีอยู่
+    const items = order.items.map((item: any) => {
+      const enrichedItem = enrichItem(item);
+      return {
+        ...enrichedItem,
+        receivedQuantity: item.received_qty || 0, // ใช้ received_qty ที่มีอยู่
+        receivedNotes: item.received_notes || '', // ใช้ received_notes ที่มีอยู่
+      };
+    });
+    console.log('DEBUG: editReceiveItems created:', items);
+    setEditReceiveItems(items);
+    setShowEditReceiveDialog(true);
+    console.log('DEBUG: showEditReceiveDialog set to true');
+  };
+
   // ฟังก์ชันอัปเดตจำนวนที่รับจริง
   const updateReceivedQuantity = (itemId: string, quantity: number) => {
     setReceiveItems(prev => prev.map(item => 
@@ -602,8 +684,22 @@ const PurchaseOrderList = () => {
   };
 
   // ฟังก์ชันอัปเดตหมายเหตุการรับของ
-  const updateReceivedNotes = (itemId: string, notes: string) => {
-    setReceiveItems(prev => prev.map(item => 
+    const updateReceivedNotes = (itemId: string, notes: string) => {
+    setReceiveItems(prev => prev.map(item =>
+      item.id === itemId ? { ...item, receivedNotes: notes } : item
+    ));
+  };
+
+  // ฟังก์ชันอัปเดตจำนวนที่รับจริงสำหรับการแก้ไข
+  const updateEditReceivedQuantity = (itemId: string, quantity: number) => {
+    setEditReceiveItems(prev => prev.map(item =>
+      item.id === itemId ? { ...item, receivedQuantity: quantity } : item
+    ));
+  };
+
+  // ฟังก์ชันอัปเดตหมายเหตุสำหรับการแก้ไข
+  const updateEditReceivedNotes = (itemId: string, notes: string) => {
+    setEditReceiveItems(prev => prev.map(item =>
       item.id === itemId ? { ...item, receivedNotes: notes } : item
     ));
   };
@@ -615,15 +711,20 @@ const PurchaseOrderList = () => {
       // สร้างรายการรับของสำหรับแต่ละรายการใน receiveItems
       const receiveItemPromises = receiveItems.map(async (item) => {
         console.log('DEBUG: sending item to receive:', { id: item.id, name: item.name, receivedQuantity: item.receivedQuantity }); // เพิ่ม debug log
-        const res = await fetch('http://localhost:3001/api/purchase-order-items/receive', {
+        const res = await fetch('http://localhost:3001/api/purchase-order-items/receive-item', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            item_id: item.id, // เปลี่ยนชื่อ field ให้ตรงกับ backend
-            received_qty: item.receivedQuantity, // เปลี่ยนชื่อ field ให้ตรงกับ backend
-            received_at: new Date().toISOString(), // เพิ่มวันที่รับของ
+            id: item.id,
+            received_qty: item.receivedQuantity,
+            received_at: new Date().toISOString(),
           }),
         });
+        
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
         const data = await res.json();
         if (!data.success) {
           console.error('Error receiving item:', item.id, data.error);
@@ -698,6 +799,71 @@ const PurchaseOrderList = () => {
     return enriched;
   }
 
+  // ฟังก์ชันบันทึกการแก้ไขการรับของ
+  const handleSaveEditReceive = async () => {
+    try {
+      console.log('DEBUG: editReceiveItems before sending:', editReceiveItems);
+      // อัปเดตจำนวนที่รับจริงสำหรับแต่ละรายการ
+      const updateItemPromises = editReceiveItems.map(async (item) => {
+        console.log('DEBUG: updating item receive:', { id: item.id, name: item.name, receivedQuantity: item.receivedQuantity });
+        const res = await fetch('http://localhost:3001/api/purchase-order-items/receive-item', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: item.id,
+            received_qty: item.receivedQuantity,
+            received_at: new Date().toISOString(),
+          }),
+        });
+        
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
+        const result = await res.json();
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to update item');
+        }
+        
+        return result.data;
+      });
+
+      const updatedItems = await Promise.all(updateItemPromises);
+      console.log('DEBUG: items updated:', updatedItems);
+
+      // ตรวจสอบสถานะใหม่ของใบขอซื้อ
+      const allFullyReceived = updatedItems.every((item: any) => item.received_qty >= item.qty);
+      const anyReceived = updatedItems.some((item: any) => item.received_qty > 0);
+
+      let newStatus = editReceiveOrder.status;
+      if (allFullyReceived) {
+        newStatus = 'received';
+      } else if (anyReceived) {
+        newStatus = 'partial_received';
+      }
+
+      // อัปเดตสถานะของใบขอซื้อหากมีการเปลี่ยนแปลง
+      if (newStatus !== editReceiveOrder.status) {
+        console.log('DEBUG: updating PO status from', editReceiveOrder.status, 'to', newStatus);
+        await purchaseOrderAPI.update(editReceiveOrder.id, {
+          status: newStatus,
+        });
+      }
+
+      toast.success('แก้ไขการรับของเรียบร้อยแล้ว');
+      setShowEditReceiveDialog(false);
+      setEditReceiveOrder(null);
+      setEditReceiveItems([]);
+      
+      // รีเฟรชข้อมูล
+      refreshOrders();
+      window.dispatchEvent(new CustomEvent('refreshProducts'));
+    } catch (error) {
+      console.error('Error updating receive:', error);
+      toast.error(`เกิดข้อผิดพลาดในการแก้ไขการรับของ: ${error.message}`);
+    }
+  };
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <Card>
@@ -765,7 +931,12 @@ const PurchaseOrderList = () => {
                           <Button size="sm" variant="outline" onClick={() => handlePrint(order)} title="พิมพ์ใบขอซื้อ">
                             <Printer className="h-4 w-4" />
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => handleEdit(order)} disabled={order.status === 'approved' || order.status === 'cancelled' || order.status === 'received' || order.status === 'partial_received'}
+                          <Button size="sm" variant="ghost" onClick={() => {
+                            console.log('DEBUG: แก้ไขสั่งซื้อ button clicked');
+                            console.log('DEBUG: order status:', order.status);
+                            console.log('DEBUG: order:', order);
+                            handleEdit(order);
+                          }} disabled={order.status === 'approved' || order.status === 'cancelled' || order.status === 'received' || order.status === 'partial_received'}
                             className={order.status === 'approved' || order.status === 'cancelled' || order.status === 'received' || order.status === 'partial_received' ? 'opacity-50 pointer-events-none' : ''}
                             title={order.status === 'approved' ? 'ใบขอซื้อที่อนุมัติแล้วไม่สามารถแก้ไขได้' : order.status === 'cancelled' ? 'ใบขอซื้อที่ถูกยกเลิกไม่สามารถแก้ไขได้' : order.status === 'received' || order.status === 'partial_received' ? 'ใบขอซื้อที่รับของแล้วไม่สามารถแก้ไขได้' : ''}
                           >
@@ -796,6 +967,31 @@ const PurchaseOrderList = () => {
                               title="รับของเข้า"
                             >
                               📦 รับของ
+                            </Button>
+                          )}
+                          
+                          {/* ปุ่มแก้ไขการรับของ - แสดงเฉพาะ PO ที่รับของแล้ว */}
+                          {(order.status === 'received' || order.status === 'partial_received') && (
+                            <Button
+                              size="sm"
+                              className="bg-orange-500 hover:bg-orange-600 text-white"
+                              onClick={() => {
+                                console.log('DEBUG: แก้ไขรับ button clicked');
+                                console.log('DEBUG: user.role:', user?.role);
+                                console.log('DEBUG: order:', order);
+                                if (user?.role === 'admin') {
+                                  console.log('DEBUG: Opening edit receive dialog directly');
+                                  handleOpenEditReceiveDialog(order);
+                                } else {
+                                  console.log('DEBUG: Opening password dialog for edit-receive');
+                                  setPendingEditReceiveOrder(order);
+                                  setPasswordAction('edit-receive');
+                                  openPasswordDialog();
+                                }
+                              }}
+                              title="แก้ไขการรับของ"
+                            >
+                              ✏️ แก้ไขรับ
                             </Button>
                           )}
                           <Button size="sm" variant="ghost" onClick={() => {
@@ -940,6 +1136,119 @@ const PurchaseOrderList = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Dialog แก้ไขการรับของ */}
+      <Dialog open={showEditReceiveDialog} onOpenChange={(open) => {
+        setShowEditReceiveDialog(open);
+        if (!open) {
+          setEditReceiveOrder(null);
+          setEditReceiveItems([]);
+        }
+      }}>
+        <DialogContent className="max-w-4xl w-full">
+          <DialogHeader>
+            <DialogTitle>แก้ไขการรับของ - {editReceiveOrder?.id}</DialogTitle>
+          </DialogHeader>
+          {editReceiveOrder && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">เลขที่ใบขอซื้อ</Label>
+                  <p className="text-lg font-semibold">{editReceiveOrder.id}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">วันที่สั่งซื้อ</Label>
+                  <p className="text-lg">{editReceiveOrder.createdAt ? new Date(editReceiveOrder.createdAt).toLocaleDateString('th-TH') : '-'}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">สถานะ</Label>
+                  <div className="mt-1">
+                    {getStatusBadge(editReceiveOrder.status)}
+                  </div>
+                </div>
+              </div>
+
+              {/* ตารางรายการสินค้า */}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ชื่อสินค้า</TableHead>
+                      <TableHead>รหัสสินค้า</TableHead>
+                      <TableHead>Lot</TableHead>
+                      <TableHead>จำนวนสั่งซื้อ</TableHead>
+                      <TableHead>จำนวนรับจริง</TableHead>
+                      <TableHead>หมายเหตุ</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {editReceiveItems.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.name}</TableCell>
+                        <TableCell>{item.productCode || '-'}</TableCell>
+                        <TableCell>{item.lotCode || '-'}</TableCell>
+                        <TableCell className="text-center">{item.currentQuantity}</TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            value={item.receivedQuantity}
+                            onChange={(e) => updateEditReceivedQuantity(item.id, parseInt(e.target.value) || 0)}
+                            min="0"
+                            max={item.currentQuantity * 2} // อนุญาตให้รับเกินได้ 2 เท่า
+                            className="w-20 text-center"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="text"
+                            value={item.receivedNotes}
+                            onChange={(e) => updateEditReceivedNotes(item.id, e.target.value)}
+                            placeholder="หมายเหตุ..."
+                            className="w-32"
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* สรุปการรับของ */}
+              <div className="bg-orange-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-orange-800 mb-2">สรุปการรับของ</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600">จำนวนรายการ:</span>
+                    <span className="ml-2 font-medium">{editReceiveItems.length} รายการ</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">รับครบ:</span>
+                    <span className="ml-2 font-medium text-green-600">
+                      {editReceiveItems.filter(item => item.receivedQuantity >= item.currentQuantity).length} รายการ
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">รับไม่ครบ:</span>
+                    <span className="ml-2 font-medium text-orange-600">
+                      {editReceiveItems.filter(item => item.receivedQuantity < item.currentQuantity && item.receivedQuantity > 0).length} รายการ
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ปุ่มดำเนินการ */}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowEditReceiveDialog(false)}>
+                  ยกเลิก
+                </Button>
+                <Button onClick={handleSaveEditReceive} className="bg-orange-500 hover:bg-orange-600">
+                  บันทึกการแก้ไข
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Dialog ยกเลิกใบขอซื้อ */}
       <Dialog open={showCancelDialog} onOpenChange={(open) => {
         setShowCancelDialog(open);
@@ -979,13 +1288,160 @@ const PurchaseOrderList = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Dialog แก้ไขการสั่งซื้อ */}
+      <Dialog open={editMode} onOpenChange={(open) => {
+        if (!open) {
+          setEditMode(false);
+          setEditOrder(null);
+        }
+      }}>
+        <DialogContent className="max-w-4xl w-full">
+          <DialogHeader>
+            <DialogTitle>แก้ไขใบขอซื้อ - {editOrder?.id}</DialogTitle>
+          </DialogHeader>
+          {editOrder && (
+            <div className="space-y-4">
+              {/* ข้อมูลพื้นฐาน */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">เลขที่ใบขอซื้อ</Label>
+                  <p className="text-lg font-semibold">{editOrder.id}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">วันที่สร้าง</Label>
+                  <p className="text-lg">{editOrder.createdAt ? new Date(editOrder.createdAt).toLocaleDateString('th-TH') : '-'}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">สถานะ</Label>
+                  <div className="mt-1">
+                    {getStatusBadge(editOrder.status)}
+                  </div>
+                </div>
+              </div>
+
+              {/* ข้อมูลผู้ขาย */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">ผู้ขาย</Label>
+                <Select value={String(editOrder.sellerid || editOrder.sellerId || '')} onValueChange={(value) => handleEditField('sellerid', value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="เลือกผู้ขาย">
+                      {(() => {
+                        const sellerId = editOrder.sellerid || editOrder.sellerId;
+                        if (sellerId) {
+                          const seller = sellers.find((s: any) => String(s.id) === String(sellerId));
+                          return seller ? seller.name : 'ไม่พบผู้ขาย';
+                        }
+                        return 'เลือกผู้ขาย';
+                      })()}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sellers.map((seller: any) => (
+                      <SelectItem key={seller.id} value={seller.id}>
+                        {seller.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* หมายเหตุ */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">หมายเหตุ</Label>
+                <Textarea
+                  value={editOrder.notes || ''}
+                  onChange={(e) => handleEditField('notes', e.target.value)}
+                  placeholder="หมายเหตุ..."
+                  rows={3}
+                />
+              </div>
+
+              {/* ตารางรายการสินค้า */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">รายการสินค้า</Label>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>ชื่อสินค้า</TableHead>
+                        <TableHead>รหัสสินค้า</TableHead>
+                        <TableHead>Lot</TableHead>
+                        <TableHead>จำนวน</TableHead>
+                        <TableHead>ราคาต่อหน่วย</TableHead>
+                        <TableHead>ราคารวม</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {editOrder.items?.map((item: any, idx: number) => (
+                        <TableRow key={item.id || idx}>
+                          <TableCell className="font-medium">{item.name || item.productName || '-'}</TableCell>
+                          <TableCell>{item.productCode || item.productcode || '-'}</TableCell>
+                          <TableCell>{item.lotCode || item.lotcode || '-'}</TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              value={item.currentQuantity || item.qty || 0}
+                              onChange={(e) => handleEditItemField(idx, 'currentQuantity', parseInt(e.target.value) || 0)}
+                              min="1"
+                              className="w-20 text-center"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              value={item.currentPrice || item.price || 0}
+                              onChange={(e) => handleEditItemField(idx, 'currentPrice', parseFloat(e.target.value) || 0)}
+                              min="0"
+                              step="0.01"
+                              className="w-24 text-center"
+                            />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            ฿{(item.totalPrice || 0).toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              {/* ยอดรวม */}
+              <div className="text-right text-lg font-semibold">
+                ยอดรวม: ฿{(() => {
+                  const total = editOrder.items?.reduce((sum: number, item: any) => {
+                    const currentPrice = Number(item.currentPrice) || Number(item.price) || 0;
+                    const currentQuantity = Number(item.currentQuantity) || Number(item.qty) || 0;
+                    return sum + (currentPrice * currentQuantity);
+                  }, 0) || 0;
+                  return total.toFixed(2);
+                })()}
+              </div>
+
+              {/* ปุ่มดำเนินการ */}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setEditMode(false)}>
+                  ยกเลิก
+                </Button>
+                <Button onClick={handleSaveEdit} className="bg-blue-500 hover:bg-blue-600">
+                  บันทึกการแก้ไข
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Password Dialog สำหรับ Admin */}
       <AlertDialog open={showPasswordDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>ยืนยันรหัสผ่าน Admin</AlertDialogTitle>
             <AlertDialogDescription>
-              กรุณากรอกรหัสผ่าน Admin เพื่อดำเนินการต่อ
+              {passwordAction === 'approve' && 'กรุณากรอกรหัสผ่าน Admin เพื่ออนุมัติใบขอซื้อ'}
+              {passwordAction === 'cancel' && 'กรุณากรอกรหัสผ่าน Admin เพื่อยกเลิกใบขอซื้อ'}
+              {passwordAction === 'edit-receive' && 'กรุณากรอกรหัสผ่าน Admin เพื่อแก้ไขการรับของ'}
+              {!passwordAction && 'กรุณากรอกรหัสผ่าน Admin เพื่อดำเนินการต่อ'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <input

@@ -1180,7 +1180,47 @@ app.post('/api/purchase-order-items', async (req, res) => {
   }
 });
 
-// PUT update item
+
+
+// POST receive items (สำหรับรับของ)
+app.post('/api/purchase-order-items/receive-item', async (req, res) => {
+  const { id, received_qty, received_at } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE purchase_order_items SET received_qty = $1, received_at = $2 WHERE id = $3 RETURNING *`,
+      [received_qty, received_at, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Item not found' });
+    }
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT receive items (สำหรับแก้ไขการรับของ)
+app.put('/api/purchase-order-items/receive-item', async (req, res) => {
+  const { id, received_qty, received_at } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE purchase_order_items SET received_qty = $1, received_at = $2 WHERE id = $3 RETURNING *`,
+      [received_qty, received_at, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Item not found' });
+    }
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+
+// PUT update item - ย้ายมาไว้หลัง route ที่ไม่มี parameter
 app.put('/api/purchase-order-items/:id', async (req, res) => {
   const { id } = req.params;
   const { qty, received_qty, received_at, lotcode, expirydate, price } = req.body;
@@ -1199,7 +1239,7 @@ app.put('/api/purchase-order-items/:id', async (req, res) => {
   }
 });
 
-// DELETE item
+// DELETE item - ย้ายมาไว้หลัง route ที่ไม่มี parameter
 app.delete('/api/purchase-order-items/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -1230,7 +1270,9 @@ app.post('/api/purchase-orders/migrate-items', async (req, res) => {
     console.error(err);
     res.status(500).json({ success: false, error: err.message });
   }
-}); 
+});
+
+ 
 
 // Utility: ดึง purchase_order_items ทั้งหมดของ PO เดียว พร้อมข้อมูลสินค้า
 async function getPurchaseOrderItems(purchase_order_id) {
